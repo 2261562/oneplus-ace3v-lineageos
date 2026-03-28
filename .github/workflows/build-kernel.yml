@@ -70,10 +70,10 @@ jobs:
       run: |
         cd android-kernel
         
-        # 使用仓库自带的 Python 构建脚本启动 Bazel 编译
-        # 这里指定了 pineapple 目标和 aarch64 架构
+        # -t 后面严格跟上两个参数：目标平台 (pineapple) 和 变体 (gki)
+        # 移除多余的 --aarch64（Bazel 会自动从配置文件读取架构）
         echo "Starting Kleaf build process..."
-        BUILD_CONFIG=build.config.msm.pineapple ./build_with_bazel.py -t pineapple --aarch64
+        ./build_with_bazel.py -t pineapple gki
         
     - name: Package with AnyKernel3
       run: |
