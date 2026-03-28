@@ -86,31 +86,69 @@ jobs:
         path: msm-kernel
         fetch-depth: 1
 
-    - name: Explore Kernel Structure
+    - name: Checkout Kernel Modules
       run: |
         echo "========================================="
-        echo "🔍 探索内核结构..."
+        echo "📦 克隆内核模块仓库..."
+        echo "========================================="
+        # 内核源码中的 symlink 使用相对路径 (如 ../../../sm8650-modules/...)
+        # 只要 sm8650-modules 和 msm-kernel 同级，symlink 自动生效
+        #
+        # $GITHUB_WORKSPACE/
+        # ├── msm-kernel/        (内核源码)
+        # └── sm8650-modules/    (内核模块)
+
+        git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH }} \
+          https://github.com/LineageOS/android_kernel_oneplus_sm8650-modules.git \
+          sm8650-modules
+
+        echo "模块仓库内容:"
+        ls sm8650-modules/
+
+    - name: Verify Symlinks & Patch Missing Kconfigs
+      run: |
+        echo "========================================="
+        echo "🔗 验证符号链接..."
         echo "========================================="
         cd msm-kernel
 
-        echo "--- 内核版本 ---"
-        head -5 Makefile | grep -E "VERSION|PATCHLEVEL|SUBLEVEL"
+        # 验证关键 symlink 是否正确解析
+        echo "--- 验证关键链接 ---"
+        for link in drivers/base/kernelFwUpdate drivers/base/touchpanel_notify; do
+          if [ -L "$link" ]; then
+            if [ -e "$link" ]; then
+              echo "  ✅ $link -> $(readlink $link)"
+            else
+              echo "  ❌ 断裂: $link -> $(readlink $link)"
+            fi
+          fi
+        done
 
+        # 统计 symlink 状态
+        TOTAL=$(find . -type l 2>/dev/null | wc -l)
+        BROKEN=$(find . -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l)
         echo ""
-        echo "--- 可用的 vendor defconfig ---"
-        find arch/arm64/configs/vendor -name "*.config" -o -name "*_defconfig" 2>/dev/null | sort || echo "无 vendor defconfig"
+        echo "  符号链接总数: $TOTAL, 断裂: $BROKEN"
 
+        # 兜底: 对仍然缺失的 Kconfig source 引用创建空 stub
+        # (可能有极少数指向其他未 clone 的仓库)
         echo ""
-        echo "--- GKI defconfig ---"
-        ls -la arch/arm64/configs/gki_defconfig 2>/dev/null || echo "无 gki_defconfig"
+        echo "--- 修补残留缺失的 Kconfig ---"
+        PATCHED=0
+        grep -rn '^source ' --include='Kconfig' --include='Kconfig.*' . 2>/dev/null | while IFS=: read -r file line content; do
+          src_path=$(echo "$content" | sed 's/^source[[:space:]]*//; s/"//g; s/'\''//g' | tr -d '[:space:]')
+          if echo "$src_path" | grep -q '\$'; then
+            continue
+          fi
+          if [ ! -f "$src_path" ]; then
+            echo "  创建 stub: $src_path (被 $file 引用)"
+            mkdir -p "$(dirname "$src_path")"
+            echo "# 空 Kconfig stub - 源模块未 clone" > "$src_path"
+          fi
+        done
 
-        echo ""
-        echo "--- Pineapple 相关配置 ---"
-        find arch/arm64/configs -name "*pineapple*" 2>/dev/null | sort || echo "无 pineapple 配置"
+        echo "✅ 完成"
 
-        echo ""
-        echo "--- build.config 文件 ---"
-        ls -la build.config.msm.pineapple 2>/dev/null
 
     - name: Generate Defconfig
       run: |
