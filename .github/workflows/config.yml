@@ -1,0 +1,32 @@
+name: Find Ace3V Defconfig
+
+on:
+  workflow_dispatch:
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Kernel Source
+      uses: actions/checkout@v4
+      with:
+        repository: LineageOS/android_kernel_oneplus_sm8650
+        ref: lineage-23.2
+
+    - name: Probe Defconfig
+      run: |
+        cd arch/arm64/configs
+        echo "========================================"
+        echo "🔍 正在锁定 Ace 3V (audi) 的配置文件..."
+        echo "========================================"
+        
+        echo "👉 1. 包含 audi (Ace 3V) 的专属配置:"
+        find vendor -name "*audi*"
+        
+        echo "----------------------------------------"
+        echo "👉 2. 包含 cliffs (7+ Gen 3) 的配置:"
+        find vendor -name "*cliffs*"
+        
+        echo "----------------------------------------"
+        echo "👉 3. Oplus 目录下的配置汇总:"
+        ls -l vendor/oplus/ || echo "无此目录"
