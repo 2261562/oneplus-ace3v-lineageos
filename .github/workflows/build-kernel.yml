@@ -390,6 +390,16 @@ jobs:
         # 只删除不需要的文件，保留 META-INF 和 tools 等关键目录
         rm -rf .git .github README.md
 
+        # 替换 busybox 为 arm64 静态编译版本
+        # 默认的可能是旧版 32 位，在部分 TWRP 上会 "busybox setup failed"
+        echo "--- 更新 busybox ---"
+        echo "当前 busybox: $(file tools/busybox 2>/dev/null || echo '不存在')"
+        wget -q "https://busybox.net/downloads/binaries/1.35.0-arm64-linux-musl/busybox" \
+          -O tools/busybox_new && mv tools/busybox_new tools/busybox \
+          || echo "⚠️ 下载失败，保留原版"
+        chmod 755 tools/busybox
+        echo "更新后: $(file tools/busybox)"
+
         # 配置 anykernel.sh 适配 OnePlus Ace 3V
         # SM8650 / pineapple 平台, A/B 分区, GKI 架构
         printf '%s\n' \
