@@ -278,6 +278,59 @@ jobs:
         echo "--- 生成的 DTB 文件 ---"
         find out/arch/arm64/boot/dts -name "*.dtb" -o -name "*.dtbo" 2>/dev/null | head -20 || echo "无 DTB 文件"
 
+    - name: Verify Kernel Compatibility (vermagic)
+      run: |
+        echo "========================================="
+        echo "🔍 内核兼容性验证 (vermagic)"
+        echo "========================================="
+        echo ""
+        echo "⚠️  刷入前必须确认以下信息与你手机上的内核完全匹配！"
+        echo ""
+        cd msm-kernel
+
+        # 提取编译内核的 vermagic
+        echo "=== 编译内核信息 ==="
+        VERMAGIC=$(strings out/arch/arm64/boot/Image | grep -m1 "vermagic=" | sed 's/vermagic=//')
+        echo "vermagic: ${VERMAGIC:-未找到}"
+
+        # 内核版本
+        KREL=$(cat out/include/config/kernel.release 2>/dev/null || echo "未找到")
+        echo "kernelrelease: $KREL"
+
+        # 编译器信息
+        echo "compiler: $(strings out/arch/arm64/boot/Image | grep -m1 'Linux version' | sed 's/.*(\(.*@.*\))/\1/' | head -1)"
+
+        # 关键配置
+        echo ""
+        echo "=== 关键配置 ==="
+        for cfg in CONFIG_MODVERSIONS CONFIG_MODULE_SIG CONFIG_MODULE_SIG_FORCE CONFIG_LOCALVERSION CONFIG_LOCALVERSION_AUTO; do
+          val=$(grep "^${cfg}=" out/.config 2>/dev/null || grep "^# ${cfg} is not set" out/.config 2>/dev/null || echo "${cfg}=未找到")
+          echo "  $val"
+        done
+
+        # 完整 Linux version 字符串
+        echo ""
+        echo "=== 完整版本字符串 ==="
+        strings out/arch/arm64/boot/Image | grep -m1 "Linux version"
+
+        echo ""
+        echo "========================================="
+        echo "📱 在你的手机上执行以下命令获取当前内核信息："
+        echo "========================================="
+        echo ""
+        echo "  adb shell cat /proc/version"
+        echo "  adb shell uname -r"
+        echo "  adb shell cat /proc/modules | head -5"
+        echo ""
+        echo "  # 提取当前 boot 分区中的 vermagic:"
+        echo "  adb shell su -c 'dd if=/dev/block/by-name/boot\$(getprop ro.boot.slot_suffix) of=/data/local/tmp/boot.img'"
+        echo "  adb pull /data/local/tmp/boot.img"
+        echo "  strings boot.img | grep -m1 vermagic="
+        echo ""
+        echo "⚠️  对比上面的 vermagic 和 kernelrelease"
+        echo "⚠️  如果不完全一致，请勿刷入！否则会黑屏变砖！"
+        echo "========================================="
+
     - name: Package with AnyKernel3
       run: |
         echo "========================================="
