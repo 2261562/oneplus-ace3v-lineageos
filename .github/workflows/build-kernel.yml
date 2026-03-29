@@ -159,48 +159,61 @@ jobs:
         # 使用 KernelSU 官方脚本集成到内核源码
         curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v3.2.2
 
-        # 修复: setup.sh 创建 drivers/kernelsu -> KernelSU/kernel/ 的 symlink
-        # 但 KernelSU/kernel/include/uapi 又是个 symlink -> ../../uapi (指向 KernelSU/uapi/)
-        # O=out 编译 + 嵌套 symlink = 路径断裂
-        # 解决: 手动拷贝并修复内部断裂的 symlink
+        # ============================================
+        # 修复 KernelSU 目录结构 (兼容 O=out 编译)
+        # ============================================
+        # 问题链: setup.sh 创建 drivers/kernelsu -> KernelSU/kernel/ (symlink)
+        # KernelSU/kernel/include/uapi -> ../../uapi (symlink 指向仓库根)
+        # O=out 编译时 $(src) 解析可能出错
+        # 方案: 删除所有 symlink，全部用真实文件
 
-        if [ -L "drivers/kernelsu" ]; then
-          KSU_KERNEL_DIR=$(readlink -f "drivers/kernelsu")
-          KSU_ROOT=$(dirname "$KSU_KERNEL_DIR")
-          echo "KernelSU kernel dir: $KSU_KERNEL_DIR"
-          echo "KernelSU root dir:   $KSU_ROOT"
+        KSU_ROOT="$(pwd)/KernelSU"
+        KSU_KERNEL="$KSU_ROOT/kernel"
+        KSU_UAPI="$KSU_ROOT/uapi"
 
-          # 删除 symlink，拷贝目录（不跟随 symlink）
-          rm "drivers/kernelsu"
-          cp -r "$KSU_KERNEL_DIR" "drivers/kernelsu"
+        echo "KSU_ROOT:   $KSU_ROOT"
+        echo "KSU_KERNEL: $KSU_KERNEL"
+        echo "KSU_UAPI:   $KSU_UAPI"
 
-          # 修复内部断裂的 symlink: include/uapi -> ../../uapi
-          # 实际目标是 KernelSU/uapi/
-          if [ -L "drivers/kernelsu/include/uapi" ]; then
-            rm "drivers/kernelsu/include/uapi"
-            cp -r "$KSU_ROOT/uapi" "drivers/kernelsu/include/uapi"
-            echo "✅ 已修复 include/uapi (从 $KSU_ROOT/uapi/ 拷贝)"
+        # 1. 删掉 symlink, 完整拷贝 kernel/ 目录 (不跟随内部 symlink)
+        rm -f drivers/kernelsu
+        cp -r "$KSU_KERNEL" drivers/kernelsu
+
+        # 2. 把仓库根 uapi/ 拷贝到 include/uapi/ (替换断裂 symlink)
+        rm -rf drivers/kernelsu/include/uapi
+        cp -r "$KSU_UAPI" drivers/kernelsu/include/uapi
+
+        # 3. 在每个需要 include "uapi/..." 的子目录中也放一份 uapi/
+        #    这样无论 $(src) 怎么解析，双引号 include 总能从文件所在目录找到
+        for subdir in policy core feature hook infra manager runtime selinux supercall; do
+          if [ -d "drivers/kernelsu/$subdir" ]; then
+            ln -sf ../include/uapi "drivers/kernelsu/$subdir/uapi"
           fi
+        done
 
-          # 修复其他可能断裂的 symlink
-          find drivers/kernelsu -type l | while read link; do
-            if [ ! -e "$link" ]; then
-              target=$(readlink "$link")
-              echo "  ⚠️ 断裂 symlink: $link -> $target"
-            fi
-          done
-        fi
+        # 4. 在 Kbuild 中追加绝对路径的 include (双重保险)
+        KERNELSU_ABS="$(pwd)/drivers/kernelsu"
+        echo "" >> drivers/kernelsu/Kbuild
+        echo "# 追加: 修复 O=out 模式 include 路径" >> drivers/kernelsu/Kbuild
+        echo "ccflags-y += -I${KERNELSU_ABS}/include" >> drivers/kernelsu/Kbuild
 
-        # 验证集成结果
+        # 验证
+        echo ""
         echo "--- 验证 KernelSU 文件结构 ---"
-        if [ -f "drivers/kernelsu/Kbuild" ] && [ -f "drivers/kernelsu/include/uapi/app_profile.h" ]; then
+        echo "include/uapi/ 内容:"
+        ls -la drivers/kernelsu/include/uapi/
+        echo ""
+        echo "policy/uapi 链接:"
+        ls -la drivers/kernelsu/policy/uapi
+        echo ""
+        echo "Kbuild 最后 5 行:"
+        tail -5 drivers/kernelsu/Kbuild
+        echo ""
+
+        if [ -f "drivers/kernelsu/include/uapi/app_profile.h" ]; then
           echo "✅ KernelSU 集成成功"
-          echo "Kbuild: $(wc -l < drivers/kernelsu/Kbuild) 行"
-          echo "include/uapi/ 内容: $(ls drivers/kernelsu/include/uapi/)"
         else
-          echo "❌ 关键文件缺失"
-          echo "include/uapi 状态: $(ls -la drivers/kernelsu/include/uapi 2>&1)"
-          find drivers/kernelsu/include -type f 2>/dev/null | head -20
+          echo "❌ app_profile.h 仍然缺失!"
           exit 1
         fi
 
