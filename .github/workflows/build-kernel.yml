@@ -165,7 +165,7 @@ jobs:
           REAL_PATH=$(readlink -f "drivers/kernelsu")
           echo "替换 symlink -> 拷贝实际文件"
           rm "drivers/kernelsu"
-          cp -r "$REAL_PATH" "drivers/kernelsu"
+          cp -rL "$REAL_PATH" "drivers/kernelsu"
         fi
 
         # 验证集成结果
