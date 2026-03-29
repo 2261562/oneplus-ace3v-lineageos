@@ -159,13 +159,36 @@ jobs:
         # 使用 KernelSU 官方脚本集成到内核源码
         curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v3.2.2
 
-        # 修复: O=out 模式下 symlink 可能导致 $(src) 路径解析错误
-        # 把 symlink 替换为实际文件拷贝
+        # 修复: setup.sh 创建 drivers/kernelsu -> KernelSU/kernel/ 的 symlink
+        # 但 KernelSU/kernel/include/uapi 又是个 symlink -> ../../uapi (指向 KernelSU/uapi/)
+        # O=out 编译 + 嵌套 symlink = 路径断裂
+        # 解决: 手动拷贝并修复内部断裂的 symlink
+
         if [ -L "drivers/kernelsu" ]; then
-          REAL_PATH=$(readlink -f "drivers/kernelsu")
-          echo "替换 symlink -> 拷贝实际文件"
+          KSU_KERNEL_DIR=$(readlink -f "drivers/kernelsu")
+          KSU_ROOT=$(dirname "$KSU_KERNEL_DIR")
+          echo "KernelSU kernel dir: $KSU_KERNEL_DIR"
+          echo "KernelSU root dir:   $KSU_ROOT"
+
+          # 删除 symlink，拷贝目录（不跟随 symlink）
           rm "drivers/kernelsu"
-          cp -rL "$REAL_PATH" "drivers/kernelsu"
+          cp -r "$KSU_KERNEL_DIR" "drivers/kernelsu"
+
+          # 修复内部断裂的 symlink: include/uapi -> ../../uapi
+          # 实际目标是 KernelSU/uapi/
+          if [ -L "drivers/kernelsu/include/uapi" ]; then
+            rm "drivers/kernelsu/include/uapi"
+            cp -r "$KSU_ROOT/uapi" "drivers/kernelsu/include/uapi"
+            echo "✅ 已修复 include/uapi (从 $KSU_ROOT/uapi/ 拷贝)"
+          fi
+
+          # 修复其他可能断裂的 symlink
+          find drivers/kernelsu -type l | while read link; do
+            if [ ! -e "$link" ]; then
+              target=$(readlink "$link")
+              echo "  ⚠️ 断裂 symlink: $link -> $target"
+            fi
+          done
         fi
 
         # 验证集成结果
@@ -173,10 +196,11 @@ jobs:
         if [ -f "drivers/kernelsu/Kbuild" ] && [ -f "drivers/kernelsu/include/uapi/app_profile.h" ]; then
           echo "✅ KernelSU 集成成功"
           echo "Kbuild: $(wc -l < drivers/kernelsu/Kbuild) 行"
-          echo "include/uapi/: $(ls drivers/kernelsu/include/uapi/ 2>/dev/null)"
+          echo "include/uapi/ 内容: $(ls drivers/kernelsu/include/uapi/)"
         else
-          echo "❌ 关键文件缺失，列出目录结构:"
-          find drivers/kernelsu -maxdepth 3 -type f | head -30
+          echo "❌ 关键文件缺失"
+          echo "include/uapi 状态: $(ls -la drivers/kernelsu/include/uapi 2>&1)"
+          find drivers/kernelsu/include -type f 2>/dev/null | head -20
           exit 1
         fi
 
