@@ -217,6 +217,14 @@ jobs:
           exit 1
         fi
 
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ runner.os }}-kernel-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-kernel-ccache-
+        max-size: "3G"
+
     - name: Generate Defconfig
       run: |
         echo "========================================="
@@ -241,7 +249,7 @@ jobs:
         # 步骤1: 基于 gki_defconfig 生成基础配置
         echo ">>> 使用 gki_defconfig 作为基础..."
         make O=out ARCH=arm64 \
-          CC=clang \
+          CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
@@ -276,7 +284,7 @@ jobs:
 
         # 编译内核 Image
         make O=out ARCH=arm64 \
-          CC=clang \
+          CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
@@ -297,7 +305,7 @@ jobs:
           echo "❌ 编译失败: 找不到内核镜像文件"
           echo "--- 最后 100 行编译日志 ---"
           make O=out ARCH=arm64 \
-            CC=clang \
+            CC="ccache clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
@@ -315,7 +323,7 @@ jobs:
         export PATH="$HOME/toolchains/clang/bin:$PATH"
 
         make O=out ARCH=arm64 \
-          CC=clang \
+          CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
@@ -384,20 +392,15 @@ jobs:
         echo "========================================="
         echo "📦 使用 AnyKernel3 打包..."
         echo "========================================="
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+        # ⚠️ 直接 clone AnyKernel3 官方的 'arm64-tools' 分支
+        # 里面原生的就是 arm64 架构的 busybox/magiskboot，绝不报 busybox setup failed
+        git clone -b arm64-tools --single-branch --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
-
-        # 替换 tools 文件夹内容为 AnyKernel3 官方的 arm64-tools 架构版本
-        # 默认的 master 分支提供的是 32 位 ARM，这在部分现代终端或 TWRP 里会导致 busybox 报错
-        echo "--- 切换 tools 为 arm64 架构 ---"
-        git remote set-branches origin arm64-tools
-        git fetch --depth 1 origin arm64-tools
-        git checkout FETCH_HEAD -- tools/
-        chmod 755 tools/busybox tools/magiskboot tools/magiskpolicy
-        echo "更新后的 busybox 架构:"
+        
+        echo "检查 tools 下载结果:"
         file tools/busybox
 
-        # 清理多余文件（一定要在执行完 git 操作后删除 .git 文件夹）
+        # 清理多余文件（保留 tools，不要动它里面的东西）
         rm -rf .git .github README.md
 
         # 配置 anykernel.sh 适配 OnePlus Ace 3V
