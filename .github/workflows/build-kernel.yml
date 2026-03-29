@@ -149,6 +149,25 @@ jobs:
 
         echo "✅ 完成"
 
+    - name: Integrate KernelSU
+      run: |
+        echo "========================================="
+        echo "🔑 集成 KernelSU..."
+        echo "========================================="
+        cd msm-kernel
+
+        # 使用 KernelSU 官方脚本集成到内核源码
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+
+        # 验证集成结果
+        if [ -d "KernelSU" ] && [ -d "drivers/kernelsu" ]; then
+          echo "✅ KernelSU 集成成功"
+          echo "版本: $(cat KernelSU/kernel/Makefile 2>/dev/null | grep VERSION | head -3)"
+        else
+          echo "❌ KernelSU 集成失败"
+          ls -la KernelSU/ 2>/dev/null
+          exit 1
+        fi
 
     - name: Generate Defconfig
       run: |
@@ -266,9 +285,50 @@ jobs:
         echo "========================================="
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
-        rm -rf .git README.md *placeholder
 
-        # 查找内核镜像
+        # 只删除不需要的文件，保留 META-INF 和 tools 等关键目录
+        rm -rf .git .github README.md
+
+        # 配置 anykernel.sh 适配 OnePlus Ace 3V
+        # SM8650 / pineapple 平台, A/B 分区, GKI 架构
+        printf '%s\n' \
+          '# AnyKernel3 Ramdisk Mod Script' \
+          '# osm0sis @ xda-developers' \
+          '# OnePlus Ace 3V (audi) - SM8650 - LineageOS' \
+          '' \
+          '## AnyKernel setup' \
+          "properties() { '" \
+          'kernel.string=LineageOS Kernel for OnePlus Ace 3V' \
+          'do.devicecheck=0' \
+          'do.modules=0' \
+          'do.systemless=1' \
+          'do.cleanup=1' \
+          'do.cleanuponabort=0' \
+          'device.name1=audi' \
+          'device.name2=OnePlus Ace 3V' \
+          'device.name3=OP5D3FL1' \
+          'device.name4=PJZ110' \
+          'supported.versions=' \
+          'supported.patchlevels=' \
+          "'; }" \
+          '' \
+          '## AnyKernel boot install' \
+          'BLOCK=auto;' \
+          'IS_SLOT_DEVICE=1;' \
+          'RAMDISK_COMPRESSION=auto;' \
+          'PATCH_VBMETA_FLAG=auto;' \
+          '' \
+          '. tools/ak3-core.sh;' \
+          '' \
+          'split_boot;' \
+          'flash_boot;' \
+          '## end boot install' \
+          > anykernel.sh
+
+        echo "--- anykernel.sh 内容 ---"
+        cat anykernel.sh
+
+        # 查找并复制内核镜像
         KERNEL_IMAGE=""
         if [ -f "../msm-kernel/out/arch/arm64/boot/Image" ]; then
           KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image"
@@ -286,14 +346,19 @@ jobs:
           exit 1
         fi
 
-        # 复制 DTB/DTBO 文件 (如果存在)
-        find ../msm-kernel/out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 | while read dtb; do
-          echo "复制 DTB: $(basename $dtb)"
-          cp "$dtb" ./
+        # 验证 zip 结构完整性
+        echo ""
+        echo "--- 验证关键文件 ---"
+        for f in META-INF/com/google/android/update-binary tools/ak3-core.sh anykernel.sh; do
+          if [ -f "$f" ]; then
+            echo "  ✅ $f"
+          else
+            echo "  ❌ 缺失: $f"
+          fi
         done
 
         # 创建刷机包
-        zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip *
+        zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
         echo ""
         echo "✅ 刷机包已创建"
         ls -lh ../Kernel-LineageOS-Ace3V-*.zip
