@@ -387,17 +387,18 @@ jobs:
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
 
-        # 只删除不需要的文件，保留 META-INF 和 tools 等关键目录
-        rm -rf .git .github README.md
-
         # 替换 tools 文件夹内容为 AnyKernel3 官方的 arm64-tools 架构版本
         # 默认的 master 分支提供的是 32 位 ARM，这在部分现代终端或 TWRP 里会导致 busybox 报错
         echo "--- 切换 tools 为 arm64 架构 ---"
-        git fetch origin arm64-tools
+        git remote set-branches origin arm64-tools
+        git fetch --depth 1 origin arm64-tools
         git checkout FETCH_HEAD -- tools/
         chmod 755 tools/busybox tools/magiskboot tools/magiskpolicy
         echo "更新后的 busybox 架构:"
         file tools/busybox
+
+        # 清理多余文件（一定要在执行完 git 操作后删除 .git 文件夹）
+        rm -rf .git .github README.md
 
         # 配置 anykernel.sh 适配 OnePlus Ace 3V
         # SM8650 / pineapple 平台, A/B 分区, GKI 架构
