@@ -269,49 +269,93 @@ jobs:
         grep -c "=y" out/.config || true
         echo "个配置项被启用"
 
-    - name: Compile Kernel
+    - name: Compile Kernel & Modules
       run: |
         echo "========================================="
-        echo "🔨 开始编译内核..."
+        echo "🔨 开始编译内核与驱动模块..."
         echo "========================================="
         cd msm-kernel
 
         export PATH="$HOME/toolchains/clang/bin:$PATH"
-
-        # 获取CPU核心数
         NPROC=$(nproc --all)
         echo "使用 ${NPROC} 个线程编译"
 
-        # 编译内核 Image
+        # 1. 核心变化：同时编译 Image 和 modules
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
           -j${NPROC} \
-          Image 2>&1 | tail -50
+          Image modules 2>&1 | tail -50
 
-        # 检查编译结果
-        if [ -f "out/arch/arm64/boot/Image" ]; then
-          echo ""
-          echo "✅ 内核 Image 编译成功!"
-          ls -lh out/arch/arm64/boot/Image
-        elif [ -f "out/arch/arm64/boot/Image.gz" ]; then
-          echo ""
-          echo "✅ 内核 Image.gz 编译成功!"
-          ls -lh out/arch/arm64/boot/Image.gz
-        else
-          echo ""
+        # 检查内核是否成功
+        if [ ! -f "out/arch/arm64/boot/Image" ] && [ ! -f "out/arch/arm64/boot/Image.gz" ]; then
           echo "❌ 编译失败: 找不到内核镜像文件"
-          echo "--- 最后 100 行编译日志 ---"
-          make O=out ARCH=arm64 \
-            CC="ccache clang" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            LLVM=1 \
-            -j2 Image 2>&1 | tail -100
           exit 1
         fi
+
+        # 2. 核心变化：将编译好的所有 .ko 驱动提取到外面的临时目录
+        echo "📦 提取编译好的驱动模块..."
+        make O=out ARCH=arm64 \
+          CC="ccache clang" \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          LLVM=1 \
+          INSTALL_MOD_PATH=../out_modules \
+          INSTALL_MOD_STRIP=1 \
+          modules_install
+        
+        echo "✅ 内核与驱动提取完毕"
+
+    - name: Package Kernel Modules (KernelSU Module)
+      run: |
+        echo "========================================="
+        echo "🧩 打包配套的 KernelSU 驱动模块..."
+        echo "========================================="
+        # 构建 KSU 模块目录
+        mkdir -p ksu_module/system/vendor_dlkm/lib/modules
+        
+        # 把刚才安装出来的所有 .ko 文件集中复制进来
+        find out_modules/lib/modules -type f -name "*.ko" -exec cp {} ksu_module/system/vendor_dlkm/lib/modules/ \;
+        
+        # 1. 生成模块信息文件
+        cat <<EOF > ksu_module/module.prop
+        id=ace3v_custom_kernel_modules
+        name=Ace 3V Custom Kernel Modules
+        version=1.0
+        versionCode=1
+        author=GitHub Actions
+        description=配套自定义内核的驱动补丁。刷入自定义内核后，必须在 KernelSU 中刷入此模块并重启，以恢复 WiFi、音频和蓝牙。
+        EOF
+        
+        # 2. 生成动态替换脚本 (核心魔法：无视系统目录结构，强行热替换驱动)
+        cat <<'EOF' > ksu_module/post-fs-data.sh
+        #!/system/bin/sh
+        MODDIR=${0%/*}
+        
+        # 遍历我们编译出来的所有驱动
+        find $MODDIR/system/vendor_dlkm/lib/modules -type f -name "*.ko" | while read ko_path; do
+            ko_name=$(basename $ko_path)
+            # 在系统中寻找同名的原厂驱动
+            system_ko=$(find /vendor_dlkm/lib/modules /vendor/lib/modules -type f -name "$ko_name" 2>/dev/null | head -n 1)
+            # 如果找到了，就用我们的新驱动强行挂载替换它
+            if [ -n "$system_ko" ]; then
+                mount --bind "$ko_path" "$system_ko"
+            fi
+        done
+        EOF
+        
+        # 赋予脚本执行权限
+        chmod +x ksu_module/post-fs-data.sh
+        
+        # 3. 打包成 zip
+        cd ksu_module
+        zip -r9 ../Kernel-Modules-Ace3V-$(date +%Y%m%d).zip *
+        cd ..
+        
+        echo "✅ 驱动模块打包完成"
+        ls -lh Kernel-Modules-Ace3V-*.zip
 
     - name: Compile DTBs (Device Tree)
       run: |
@@ -464,5 +508,7 @@ jobs:
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Kernel-LineageOS-Ace3V
-        path: Kernel-LineageOS-Ace3V-*.zip
+        name: Custom-Kernel-And-Modules
+        path: |
+          Kernel-LineageOS-Ace3V-*.zip
+          Kernel-Modules-Ace3V-*.zip
