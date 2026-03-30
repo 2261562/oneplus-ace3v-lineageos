@@ -390,14 +390,13 @@ jobs:
     - name: Package with AnyKernel3
       run: |
         echo "========================================="
-        echo "📦 终极方案：直接下载并替换纯64位内核工具"
+        echo "📦 终极方案：纯64位内核工具 + 强制 boot 分区"
         echo "========================================="
-        # 1. 克隆完整的 master 主干（获取最新的 ak3-core.sh，支持 dump_boot）
+        # 1. 克隆完整的 master 主干
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
         
         # 2. 直接从 arm64-tools 分支强制下载 64位 的 busybox 和 magiskboot
-        # 覆盖掉 master 分支自带的 32 位版本，根除 busybox setup failed
         echo "下载 64位 busybox 和 magiskboot..."
         curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/busybox" -o tools/busybox
         curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/magiskboot" -o tools/magiskboot
@@ -406,7 +405,7 @@ jobs:
         chmod -R 777 tools
         rm -rf .git .github README.md
 
-        # 4. 写入适配 GKI 的现代配置
+        # 4. 写入适配 GKI 的现代配置 (纯净版，已修改为 BLOCK=boot;)
         printf '%s\n' \
           '# AnyKernel3 Ramdisk Mod Script' \
           '# OnePlus Ace 3V (audi/porsche) - GKI' \
@@ -428,14 +427,13 @@ jobs:
           "'; }" \
           '' \
           '## AnyKernel boot install' \
-          'BLOCK=boot;' \    <------- 就是这里！改成 boot
+          'BLOCK=boot;' \
           'IS_SLOT_DEVICE=1;' \
           'RAMDISK_COMPRESSION=auto;' \
           'PATCH_VBMETA_FLAG=auto;' \
           '' \
           '. tools/ak3-core.sh;' \
           '' \
-          '# 关键：GKI 设备必须用 dump 和 write' \
           'dump_boot;' \
           'write_boot;' \
           '## end boot install' \
