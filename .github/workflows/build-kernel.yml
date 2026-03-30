@@ -390,25 +390,21 @@ jobs:
     - name: Package with AnyKernel3
       run: |
         echo "========================================="
-        echo "📦 使用 AnyKernel3 打包..."
+        echo "📦 终极方案：纯64位 + GKI专用打包..."
         echo "========================================="
-        # 使用 master 分支获取最新的 magiskboot，支持 GKI boot v4 解包
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+        # 1. 必须使用 arm64-tools 分支，拿纯 64 位的 busybox 和 magiskboot
+        git clone -b arm64-tools --single-branch --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
         
-        # 核心修复 1：强制修复 busybox setup failed
-        # 将 update-binary 中的动态架构识别强制写死为 arm64
-        sed -i 's/case $arch in/arch="arm64"; case $arch in/g' META-INF/com/google/android/update-binary
+        # 2. 暴力赋予工具目录最高执行权限，防止 zip 压缩时丢失
+        chmod -R 777 tools
         
-        # 确保工具目录具有可执行权限
-        chmod -R 755 tools
-
         rm -rf .git .github README.md
 
-        # 核心修复 2：使用现代 GKI 打包命令 (dump_boot & write_boot)
+        # 3. 写入适配 GKI 的现代配置
         printf '%s\n' \
           '# AnyKernel3 Ramdisk Mod Script' \
-          '# OnePlus Ace 3V (audi) - SM8650' \
+          '# OnePlus Ace 3V (audi/porsche) - GKI' \
           '' \
           '## AnyKernel setup' \
           "properties() { '" \
@@ -419,7 +415,7 @@ jobs:
           'do.cleanup=1' \
           'do.cleanuponabort=0' \
           'device.name1=audi' \
-          'device.name2=OnePlus Ace 3V' \
+          'device.name2=porsche' \
           'device.name3=OP5D3FL1' \
           'device.name4=PJZ110' \
           'supported.versions=' \
@@ -427,19 +423,20 @@ jobs:
           "'; }" \
           '' \
           '## AnyKernel boot install' \
-          'BLOCK=auto;' \
+          'BLOCK=boot;' \
           'IS_SLOT_DEVICE=1;' \
           'RAMDISK_COMPRESSION=auto;' \
           'PATCH_VBMETA_FLAG=auto;' \
           '' \
           '. tools/ak3-core.sh;' \
           '' \
-          'dump_boot; # 解包原厂 boot' \
-          'write_boot; # 注入新 Image 并重新打包刷入' \
+          '# 关键：GKI 设备必须用 dump 和 write，绝不能用 split' \
+          'dump_boot;' \
+          'write_boot;' \
           '## end boot install' \
           > anykernel.sh
 
-        # 查找并复制内核镜像
+        # 查找内核镜像
         KERNEL_IMAGE=""
         if [ -f "../msm-kernel/out/arch/arm64/boot/Image" ]; then
           KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image"
@@ -448,17 +445,16 @@ jobs:
         fi
 
         if [ -n "$KERNEL_IMAGE" ]; then
-          echo "✅ 找到内核镜像: $KERNEL_IMAGE"
           cp "$KERNEL_IMAGE" ./
         else
           echo "❌ 找不到编译好的内核镜像!"
           exit 1
         fi
 
-        # 创建刷机包
+        # 4. 创建刷机包
         zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
         
-        # 补充：直接提取出 Image 文件，作为保底刷入手段
+        # 5. 备用手段：把裸的 Image 单独存一份，方便方案 B 使用
         cp "$KERNEL_IMAGE" ../Image-LineageOS-Ace3V-$(date +%Y%m%d)
 
     - name: Upload Kernel Artifact
