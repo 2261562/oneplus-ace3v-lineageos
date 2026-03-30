@@ -390,18 +390,25 @@ jobs:
     - name: Package with AnyKernel3
       run: |
         echo "========================================="
-        echo "📦 终极方案：纯64位 + GKI专用打包..."
+        echo "📦 终极方案：主干框架拼接纯64位工具..."
         echo "========================================="
-        # 1. 必须使用 arm64-tools 分支，拿纯 64 位的 busybox 和 magiskboot
-        git clone -b arm64-tools --single-branch --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+        # 1. 克隆完整的 master 主干（获取完整的 META-INF 和刷机包结构）
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
         
-        # 2. 暴力赋予工具目录最高执行权限，防止 zip 压缩时丢失
+        # 2. 删掉自带的旧版 32 位工具
+        rm -rf tools
+        
+        # 3. 把纯 64 位的孤儿分支直接作为 tools 目录克隆进来！(完美拼接)
+        git clone -b arm64-tools --single-branch --depth=1 https://github.com/osm0sis/AnyKernel3.git tools
+        
+        # 4. 暴力赋予工具目录最高执行权限
         chmod -R 777 tools
         
-        rm -rf .git .github README.md
+        # 清理多余的 git 文件，防止打包进去
+        rm -rf .git .github README.md tools/.git
 
-        # 3. 写入适配 GKI 的现代配置
+        # 5. 写入适配 GKI 的现代配置
         printf '%s\n' \
           '# AnyKernel3 Ramdisk Mod Script' \
           '# OnePlus Ace 3V (audi/porsche) - GKI' \
@@ -430,13 +437,13 @@ jobs:
           '' \
           '. tools/ak3-core.sh;' \
           '' \
-          '# 关键：GKI 设备必须用 dump 和 write，绝不能用 split' \
+          '# 关键：GKI 设备必须用 dump 和 write' \
           'dump_boot;' \
           'write_boot;' \
           '## end boot install' \
           > anykernel.sh
 
-        # 查找内核镜像
+        # 6. 查找内核镜像
         KERNEL_IMAGE=""
         if [ -f "../msm-kernel/out/arch/arm64/boot/Image" ]; then
           KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image"
@@ -451,10 +458,10 @@ jobs:
           exit 1
         fi
 
-        # 4. 创建刷机包
+        # 7. 创建刷机包
         zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
         
-        # 5. 备用手段：把裸的 Image 单独存一份，方便方案 B 使用
+        # 8. 备用手段：把裸的 Image 单独存一份
         cp "$KERNEL_IMAGE" ../Image-LineageOS-Ace3V-$(date +%Y%m%d)
 
     - name: Upload Kernel Artifact
