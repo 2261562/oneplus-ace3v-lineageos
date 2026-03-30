@@ -390,22 +390,23 @@ jobs:
     - name: Package with AnyKernel3
       run: |
         echo "========================================="
-        echo "📦 终极方案：Master脚本 + 纯64位内核工具"
+        echo "📦 终极方案：直接下载并替换纯64位内核工具"
         echo "========================================="
         # 1. 克隆完整的 master 主干（获取最新的 ak3-core.sh，支持 dump_boot）
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
         
-        # 2. 单独拉取 arm64-tools 分支，仅提取纯 64 位的 busybox 和 magiskboot
-        # 这一步完美解决了 SM8650 砍掉 32位 导致 busybox setup failed 的问题
-        git fetch origin arm64-tools
-        git checkout FETCH_HEAD -- tools/busybox tools/magiskboot
+        # 2. 直接从 arm64-tools 分支强制下载 64位 的 busybox 和 magiskboot
+        # 覆盖掉 master 分支自带的 32 位版本，根除 busybox setup failed
+        echo "下载 64位 busybox 和 magiskboot..."
+        curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/busybox" -o tools/busybox
+        curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/magiskboot" -o tools/magiskboot
         
         # 3. 赋予最高执行权限，防止压缩时丢失
         chmod -R 777 tools
         rm -rf .git .github README.md
 
-        # 4. 写入适配 GKI 的现代配置 (注意 BLOCK=auto; 已经修复)
+        # 4. 写入适配 GKI 的现代配置
         printf '%s\n' \
           '# AnyKernel3 Ramdisk Mod Script' \
           '# OnePlus Ace 3V (audi/porsche) - GKI' \
@@ -449,6 +450,7 @@ jobs:
         fi
 
         if [ -n "$KERNEL_IMAGE" ]; then
+          echo "✅ 找到内核镜像: $KERNEL_IMAGE"
           cp "$KERNEL_IMAGE" ./
         else
           echo "❌ 找不到编译好的内核镜像!"
