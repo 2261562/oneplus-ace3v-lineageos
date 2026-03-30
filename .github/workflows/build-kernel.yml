@@ -392,23 +392,23 @@ jobs:
         echo "========================================="
         echo "📦 使用 AnyKernel3 打包..."
         echo "========================================="
-        # ⚠️ 直接 clone AnyKernel3 官方的 'arm64-tools' 分支
-        # 里面原生的就是 arm64 架构的 busybox/magiskboot，绝不报 busybox setup failed
-        git clone -b arm64-tools --single-branch --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+        # 使用 master 分支获取最新的 magiskboot，支持 GKI boot v4 解包
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
         
-        echo "检查 tools 下载结果:"
-        file tools/busybox
+        # 核心修复 1：强制修复 busybox setup failed
+        # 将 update-binary 中的动态架构识别强制写死为 arm64
+        sed -i 's/case $arch in/arch="arm64"; case $arch in/g' META-INF/com/google/android/update-binary
+        
+        # 确保工具目录具有可执行权限
+        chmod -R 755 tools
 
-        # 清理多余文件（保留 tools，不要动它里面的东西）
         rm -rf .git .github README.md
 
-        # 配置 anykernel.sh 适配 OnePlus Ace 3V
-        # SM8650 / pineapple 平台, A/B 分区, GKI 架构
+        # 核心修复 2：使用现代 GKI 打包命令 (dump_boot & write_boot)
         printf '%s\n' \
           '# AnyKernel3 Ramdisk Mod Script' \
-          '# osm0sis @ xda-developers' \
-          '# OnePlus Ace 3V (audi) - SM8650 - LineageOS' \
+          '# OnePlus Ace 3V (audi) - SM8650' \
           '' \
           '## AnyKernel setup' \
           "properties() { '" \
@@ -434,13 +434,10 @@ jobs:
           '' \
           '. tools/ak3-core.sh;' \
           '' \
-          'split_boot;' \
-          'flash_boot;' \
+          'dump_boot; # 解包原厂 boot' \
+          'write_boot; # 注入新 Image 并重新打包刷入' \
           '## end boot install' \
           > anykernel.sh
-
-        echo "--- anykernel.sh 内容 ---"
-        cat anykernel.sh
 
         # 查找并复制内核镜像
         KERNEL_IMAGE=""
@@ -453,29 +450,16 @@ jobs:
         if [ -n "$KERNEL_IMAGE" ]; then
           echo "✅ 找到内核镜像: $KERNEL_IMAGE"
           cp "$KERNEL_IMAGE" ./
-          ls -lh $(basename "$KERNEL_IMAGE")
         else
           echo "❌ 找不到编译好的内核镜像!"
-          find ../msm-kernel/out -name "Image*" -type f 2>/dev/null
           exit 1
         fi
 
-        # 验证 zip 结构完整性
-        echo ""
-        echo "--- 验证关键文件 ---"
-        for f in META-INF/com/google/android/update-binary tools/ak3-core.sh anykernel.sh; do
-          if [ -f "$f" ]; then
-            echo "  ✅ $f"
-          else
-            echo "  ❌ 缺失: $f"
-          fi
-        done
-
         # 创建刷机包
         zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
-        echo ""
-        echo "✅ 刷机包已创建"
-        ls -lh ../Kernel-LineageOS-Ace3V-*.zip
+        
+        # 补充：直接提取出 Image 文件，作为保底刷入手段
+        cp "$KERNEL_IMAGE" ../Image-LineageOS-Ace3V-$(date +%Y%m%d)
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
