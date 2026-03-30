@@ -428,7 +428,7 @@ jobs:
           "'; }" \
           '' \
           '## AnyKernel boot install' \
-          'BLOCK=auto;' \
+          'BLOCK=boot;' \    <------- 就是这里！改成 boot
           'IS_SLOT_DEVICE=1;' \
           'RAMDISK_COMPRESSION=auto;' \
           'PATCH_VBMETA_FLAG=auto;' \
