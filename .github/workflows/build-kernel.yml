@@ -390,25 +390,22 @@ jobs:
     - name: Package with AnyKernel3
       run: |
         echo "========================================="
-        echo "📦 终极方案：主干框架拼接纯64位工具..."
+        echo "📦 终极方案：Master脚本 + 纯64位内核工具"
         echo "========================================="
-        # 1. 克隆完整的 master 主干（获取完整的 META-INF 和刷机包结构）
+        # 1. 克隆完整的 master 主干（获取最新的 ak3-core.sh，支持 dump_boot）
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
         
-        # 2. 删掉自带的旧版 32 位工具
-        rm -rf tools
+        # 2. 单独拉取 arm64-tools 分支，仅提取纯 64 位的 busybox 和 magiskboot
+        # 这一步完美解决了 SM8650 砍掉 32位 导致 busybox setup failed 的问题
+        git fetch origin arm64-tools
+        git checkout FETCH_HEAD -- tools/busybox tools/magiskboot
         
-        # 3. 把纯 64 位的孤儿分支直接作为 tools 目录克隆进来！(完美拼接)
-        git clone -b arm64-tools --single-branch --depth=1 https://github.com/osm0sis/AnyKernel3.git tools
-        
-        # 4. 暴力赋予工具目录最高执行权限
+        # 3. 赋予最高执行权限，防止压缩时丢失
         chmod -R 777 tools
-        
-        # 清理多余的 git 文件，防止打包进去
-        rm -rf .git .github README.md tools/.git
+        rm -rf .git .github README.md
 
-        # 5. 写入适配 GKI 的现代配置
+        # 4. 写入适配 GKI 的现代配置 (注意 BLOCK=auto; 已经修复)
         printf '%s\n' \
           '# AnyKernel3 Ramdisk Mod Script' \
           '# OnePlus Ace 3V (audi/porsche) - GKI' \
@@ -430,7 +427,7 @@ jobs:
           "'; }" \
           '' \
           '## AnyKernel boot install' \
-          'BLOCK=boot;' \
+          'BLOCK=auto;' \
           'IS_SLOT_DEVICE=1;' \
           'RAMDISK_COMPRESSION=auto;' \
           'PATCH_VBMETA_FLAG=auto;' \
@@ -443,7 +440,7 @@ jobs:
           '## end boot install' \
           > anykernel.sh
 
-        # 6. 查找内核镜像
+        # 5. 查找内核镜像
         KERNEL_IMAGE=""
         if [ -f "../msm-kernel/out/arch/arm64/boot/Image" ]; then
           KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image"
@@ -458,10 +455,10 @@ jobs:
           exit 1
         fi
 
-        # 7. 创建刷机包
+        # 6. 创建刷机包
         zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
         
-        # 8. 备用手段：把裸的 Image 单独存一份
+        # 7. 备用手段：单独存一份裸 Image
         cp "$KERNEL_IMAGE" ../Image-LineageOS-Ace3V-$(date +%Y%m%d)
 
     - name: Upload Kernel Artifact
