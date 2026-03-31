@@ -44,18 +44,21 @@ jobs:
           cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
           echo "下载 Google 官方 Kleaf 构建脚本库..."
-          git clone --depth=1 -b common-android14-6.1 https://android.googlesource.com/kernel/build build
+          # 注意目录结构必须是 build/kernel 以匹配 BUILD.bazel 里的路径引用
+          mkdir -p build/kernel
+          git clone --depth=1 https://android.googlesource.com/kernel/build build/kernel
           
           echo "下载 GKI 通用内核底座 (高通驱动高度依赖它)..."
-          git clone --depth=1 -b common-android14-6.1 https://android.googlesource.com/kernel/common common
+          # 使用纯正的 android14-6.1 分支，去掉容易报错的 common- 前缀
+          git clone --depth=1 -b android14-6.1 https://android.googlesource.com/kernel/common common
           
           echo "重建 tools/bazel 包装器..."
           mkdir -p tools
           cat << 'EOF' > tools/bazel
           #!/bin/bash
           export ROOT_DIR=$(cd $(dirname $0)/.. && pwd)
-          # 动态调用 Google 的 bazel 脚本，它会自动下载预编译工具链
-          exec ${ROOT_DIR}/build/kleaf/bazel.sh "$@"
+          # 修正路径指向 build/kernel/kleaf/bazel.sh
+          exec ${ROOT_DIR}/build/kernel/kleaf/bazel.sh "$@"
           EOF
           chmod +x tools/bazel
 
