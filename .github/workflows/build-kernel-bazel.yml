@@ -39,7 +39,7 @@ jobs:
           echo "拉取设备树..."
           git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-devicetrees.git devicetrees
 
-      - name: 4. 补全缺失的 Google Kleaf 编译底座与工具链 (终极修复)
+      - name: 4. 补全缺失的 Google Kleaf 编译底座与离线仓库 (最终完整版)
         run: |
           cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
@@ -50,15 +50,19 @@ jobs:
           echo "2. 下载 GKI 通用内核底座..."
           git clone --depth=1 -b android14-6.1 https://android.googlesource.com/kernel/common common
           
-          echo "3. 下载核心预编译工具链 (修复 py3-cmd 找不到的问题)..."
-          # 这里面包含了 Google 专用的 Python、Make、Ninja 等基础工具
+          echo "3. 下载核心预编译工具链..."
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/build-tools prebuilts/build-tools
-          
-          echo "4. 下载内核专属预编译工具链 (Kleaf 必备)..."
-          # 这里面包含了内核编译专用的打包工具等
           git clone --depth=1 https://android.googlesource.com/kernel/prebuilts/build-tools prebuilts/kernel-build-tools
           
-          echo "5. 重建 tools/bazel 包装器..."
+          echo "4. 下载 Bazel 离线中央仓库 (修复 rules_shell 报错的核心!)..."
+          mkdir -p external
+          git clone --depth=1 https://android.googlesource.com/platform/external/bazelbuild-bazel-central-registry external/bazelbuild-bazel-central-registry
+          
+          echo "5. 预先下载 Clang 编译器 (防范下一步编译器缺失报错)..."
+          mkdir -p prebuilts/clang/host
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 prebuilts/clang/host/linux-x86
+          
+          echo "6. 重建 tools/bazel 包装器..."
           mkdir -p tools
           cat << 'EOF' > tools/bazel
           #!/bin/bash
