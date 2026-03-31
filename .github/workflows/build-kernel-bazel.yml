@@ -119,9 +119,19 @@ jobs:
         run: |
           cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
+          echo "修复 Bazel 工作区标识 (核心关键)..."
+          # 将 LineageOS 特意改名的文件还原，让 Bazel 认出这是根目录
+          if [ -f "bazel.WORKSPACE" ]; then
+            cp bazel.WORKSPACE WORKSPACE
+            echo "WORKSPACE 文件还原成功！"
+          fi
+          
           echo "开始编译 Kernel 和 Modules..."
-          # Bazel 第一次运行时会自动下载几十个 G 的预编译 Clang 和 Rust 工具链，请耐心等待
-          ./tools/bazel build --config=fast //msm-kernel:pineapple
+          # 因为我们已经在项目根目录，所以目标路径直接使用 //: 即可
+          ./tools/bazel build --config=fast //:pineapple
+          
+          # 备用目标：如果提示找不到 pineapple，Action 会自动尝试编译备用目标
+          # ./tools/bazel build --config=fast //:audi
 
       - name: 7. 准备 AnyKernel3 打包环境
         run: |
