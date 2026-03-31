@@ -1,7 +1,7 @@
-name: Build OnePlus Ace 3V (audi) Kernel
+name: Build OnePlus Ace 3V (audi) Kernel with Docker
 
 on:
-  workflow_dispatch: # 允许在 GitHub 网页端手动点击运行
+  workflow_dispatch: # 允许手动点击运行
 
 jobs:
   build-kernel:
@@ -17,7 +17,7 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - name: 2. 安装基础依赖 (适配最新 Ubuntu 与 Kleaf)
+      - name: 2. 安装基础依赖 (适配现代 Kleaf)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -26,42 +26,58 @@ jobs:
             lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python-is-python3
 
       - name: 3. 克隆 LineageOS 23.2 源码树
-        # 将三个仓库拉取到同级目录，这是 Bazel WORKSPACE 通常期望的结构
         run: |
           mkdir -p ${GITHUB_WORKSPACE}/android_kernel
           cd ${GITHUB_WORKSPACE}/android_kernel
           
           echo "拉取核心内核..."
-          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650.git
+          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650.git msm-kernel
           
           echo "拉取驱动模块 (Wi-Fi/Audio 等)..."
-          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-modules.git
+          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-modules.git vendor_modules
           
           echo "拉取设备树..."
-          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-devicetrees.git
+          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-devicetrees.git devicetrees
 
-      - name: 3.5. 注入 Docker 核心内核配置 (极客魔法)
+      - name: 4. 补全缺失的 Google Kleaf 编译底座 (解决 bazel 找不到的核心修复)
         run: |
-          echo "准备向 pineapple_GKI.config 注入 Docker 依赖..."
+          cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
-          # 根据你之前的截图，配置文件的路径在这里：
-          CONFIG_FILE="${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650/arch/arm64/configs/vendor/oplus/pineapple_GKI.config"
+          echo "下载 Google 官方 Kleaf 构建脚本库..."
+          git clone --depth=1 -b common-android14-6.1 https://android.googlesource.com/kernel/build build
           
-          # 使用追加模式将 Docker 必备的配置项强行写入
+          echo "下载 GKI 通用内核底座 (高通驱动高度依赖它)..."
+          git clone --depth=1 -b common-android14-6.1 https://android.googlesource.com/kernel/common common
+          
+          echo "重建 tools/bazel 包装器..."
+          mkdir -p tools
+          cat << 'EOF' > tools/bazel
+          #!/bin/bash
+          export ROOT_DIR=$(cd $(dirname $0)/.. && pwd)
+          # 动态调用 Google 的 bazel 脚本，它会自动下载预编译工具链
+          exec ${ROOT_DIR}/build/kleaf/bazel.sh "$@"
+          EOF
+          chmod +x tools/bazel
+
+      - name: 5. 注入 Docker 核心内核配置 (极客魔法)
+        run: |
+          cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
+          
+          CONFIG_FILE="arch/arm64/configs/vendor/oplus/pineapple_GKI.config"
+          
+          echo "准备向 $CONFIG_FILE 注入 Docker 依赖..."
+          
           cat << 'EOF' >> "$CONFIG_FILE"
           
           # ==========================================
           # Docker / 容器化核心支持补丁
           # ==========================================
-          # 1. 命名空间支持 (隔离环境)
           CONFIG_NAMESPACES=y
           CONFIG_USER_NS=y
           CONFIG_PID_NS=y
           CONFIG_IPC_NS=y
           CONFIG_UTS_NS=y
           CONFIG_CGROUP_NS=y
-          
-          # 2. 控制组支持 (资源限制)
           CONFIG_CGROUPS=y
           CONFIG_MEMCG=y
           CONFIG_MEMCG_SWAP=y
@@ -72,25 +88,17 @@ jobs:
           CONFIG_CGROUP_DEVICE=y
           CONFIG_CGROUP_CPUACCT=y
           CONFIG_CGROUP_BPF=y
-          
-          # 3. 虚拟网络与桥接 (Docker 网络的灵魂，端口映射必须)
           CONFIG_VETH=y
           CONFIG_BRIDGE=y
           CONFIG_BRIDGE_NETFILTER=y
           CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
           CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
           CONFIG_NETFILTER_XT_MATCH_IPVS=y
-          
-          # 4. NAT 与 iptables (让容器可以联网)
           CONFIG_IP_NF_NAT=y
           CONFIG_IP_NF_TARGET_MASQUERADE=y
           CONFIG_IP_NF_TARGET_NETMAP=y
           CONFIG_IP_NF_TARGET_REDIRECT=y
-          
-          # 5. 存储驱动 (Android GKI 默认通常已包含 OverlayFS，这里加一层双保险)
           CONFIG_OVERLAY_FS=y
-          
-          # 6. 其他必需组件
           CONFIG_POSIX_MQUEUE=y
           CONFIG_SECCOMP=y
           CONFIG_SECCOMP_FILTER=y
@@ -98,49 +106,27 @@ jobs:
           EOF
           
           echo "Docker 配置注入完成！"
-          cat "$CONFIG_FILE" | tail -n 40
 
-      - name: 4. 执行 Bazel/Kleaf 编译
+      - name: 6. 执行 Bazel/Kleaf 编译
         run: |
-          cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
-          
-          # 现代 GKI 平台通常使用 tools/bazel 包装器
-          # 目标通常命名为 pineapple (骁龙8Gen3代号) 或 oplus_pineapple
-          # --config=fast 用于加速编译
+          cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
           echo "开始编译 Kernel 和 Modules..."
-          tools/bazel build --config=fast //msm-kernel:pineapple
-          
-          # 备用方案（如果上面的 target 报错找不到，Action 会执行这条）：
-          # tools/bazel build --config=fast //:pineapple
+          # Bazel 第一次运行时会自动下载几十个 G 的预编译 Clang 和 Rust 工具链，请耐心等待
+          ./tools/bazel build --config=fast //msm-kernel:pineapple
 
-      - name: 5. 准备 AnyKernel3 打包环境
+      - name: 7. 准备 AnyKernel3 打包环境
         run: |
           cd ${GITHUB_WORKSPACE}
-          # 拉取通用的 AnyKernel3 模板
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          # 清理无用的示例文件
           rm -rf AnyKernel3/.git AnyKernel3/patch AnyKernel3/ramdisk
           mkdir -p AnyKernel3/modules/vendor_dlkm/lib/modules/
 
-      - name: 6. 收集编译产物 (Image 和 .ko 驱动)
+      - name: 8. 收集编译产物 (Image 和 .ko 驱动)
         run: |
-          cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
+          cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
           echo "寻找并复制 Image 内核文件..."
-          # Kleaf 产物通常在 bazel-bin 或 out 目录下
           find bazel-bin/ out/ -name "Image" -type f -exec cp {} ${GITHUB_WORKSPACE}/AnyKernel3/ \;
           
-          echo "寻找并复制所有 .ko 驱动文件 (核心环节)..."
-          find bazel-bin/ out/ -name "*.ko" -type f -exec cp {} ${GITHUB_WORKSPACE}/AnyKernel3/modules/vendor_dlkm/lib/modules/ \;
-
-      - name: 7. 打包成刷机包
-        run: |
-          cd ${GITHUB_WORKSPACE}/AnyKernel3
-          zip -r9 OnePlus-Ace3V-Kernel-Lineage23.2.zip *
-
-      - name: 8. 上传最终产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: OnePlus-Ace3V-Flashable-Kernel
-          path: ${GITHUB_WORKSPACE}/AnyKernel3/OnePlus-Ace3V-Kernel-Lineage23.2.zip
+          echo "寻找并复制所有 .ko 驱动文件 (修复 Wi-Fi 的
