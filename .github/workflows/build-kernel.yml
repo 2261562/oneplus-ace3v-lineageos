@@ -280,13 +280,14 @@ jobs:
         NPROC=$(nproc --all)
         echo "使用 ${NPROC} 个线程编译"
 
-        # 1. 第一步：只编译内核核心 Image (不带 modules)
-        # 这里完全不会去碰那些令人头疼的外部相机/WiFi代码
+        # 1. 编译内核核心 Image
+        # 重新加入 KCFLAGS="-Wno-error" 忽略一加原厂闪光灯驱动等无害的日志格式化警告
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
+          KCFLAGS="-Wno-error" \
           -j${NPROC} \
           Image
 
@@ -297,8 +298,7 @@ jobs:
         fi
         echo "✅ 内核核心 Image 编译成功！"
 
-        # 2. 第二步：使用官方的 M= 参数，编译外部模块
-        # 这就是你找到的“外部构建”的核心精髓！
+        # 2. 编译外部模块
         echo "📦 开始编译树外模块 (sm8650-modules)..."
         make O=out ARCH=arm64 \
           CC="ccache clang" \
@@ -306,10 +306,11 @@ jobs:
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
           M=../sm8650-modules \
+          KCFLAGS="-Wno-error" \
           -j${NPROC} \
           modules
 
-        # 3. 第三步：提取这些外部模块
+        # 3. 提取这些外部模块
         echo "📥 提取编译好的驱动模块..."
         make O=out ARCH=arm64 \
           CC="ccache clang" \
