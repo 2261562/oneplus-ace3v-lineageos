@@ -276,12 +276,29 @@ jobs:
         echo "========================================="
         cd msm-kernel
 
+        echo "--- 🩹 修复 GKI 架构头文件分离问题 ---"
+        # 1. 遍历模块仓库中所有的 include 目录，把被高通剥离的头文件强行合并回来
+        find ../sm8650-modules -type d -name "include" | while read inc_dir; do
+          echo "合并头文件目录: $inc_dir"
+          cp -rn "$inc_dir/"* include/ 2>/dev/null || true
+        done
+        
+        # 2. 精准打击：以防万一 service-locator 藏在非标准目录，单独查找并硬链接它
+        LOC_HDR=$(find ../sm8650-modules -name "service-locator.h" | head -n 1)
+        if [ -n "$LOC_HDR" ]; then
+          mkdir -p include/soc/qcom
+          cp "$LOC_HDR" include/soc/qcom/
+          echo "✅ 成功修补关键头文件: service-locator.h"
+        else
+          echo "⚠️ 警告：未在模块源码中找到 service-locator.h，可能位于更深层的 techpack 中"
+        fi
+        echo "头文件合并完毕！"
+
         export PATH="$HOME/toolchains/clang/bin:$PATH"
         NPROC=$(nproc --all)
         echo "使用 ${NPROC} 个线程编译"
 
-        # 核心修复 1：注入 KCFLAGS="-Wno-error" 忽略代码规范警告
-        # 核心修复 2：去掉 | tail -50，让 GitHub Actions 捕获完整日志
+        # 继续保留 KCFLAGS="-Wno-error" 防治格式化报错，并正式开始编译
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
