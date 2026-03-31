@@ -39,11 +39,11 @@ jobs:
           echo "拉取设备树..."
           git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-devicetrees.git devicetrees
 
-      - name: 4. 补全缺失的 Google Kleaf 编译底座与离线仓库 (最终完整版)
+      - name: 4. 补全缺失的 Google Kleaf 编译底座与工具链
         run: |
           cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
-          echo "1. 下载 Google 官方 Kleaf 构建脚本库..."
+          echo "1. 下载 Google 官方 Kleaf 构建脚本..."
           mkdir -p build/kernel
           git clone --depth=1 https://android.googlesource.com/kernel/build build/kernel
           
@@ -54,15 +54,11 @@ jobs:
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/build-tools prebuilts/build-tools
           git clone --depth=1 https://android.googlesource.com/kernel/prebuilts/build-tools prebuilts/kernel-build-tools
           
-          echo "4. 下载 Bazel 离线中央仓库 (修复 rules_shell 报错的核心!)..."
-          mkdir -p external
-          git clone --depth=1 https://android.googlesource.com/platform/external/bazelbuild-bazel-central-registry external/bazelbuild-bazel-central-registry
-          
-          echo "5. 预先下载 Clang 编译器 (防范下一步编译器缺失报错)..."
+          echo "4. 预先下载 Clang 编译器..."
           mkdir -p prebuilts/clang/host
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 prebuilts/clang/host/linux-x86
           
-          echo "6. 重建 tools/bazel 包装器..."
+          echo "5. 重建 tools/bazel 包装器..."
           mkdir -p tools
           cat << 'EOF' > tools/bazel
           #!/bin/bash
@@ -123,19 +119,18 @@ jobs:
         run: |
           cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
-          echo "修复 Bazel 工作区标识 (核心关键)..."
-          # 将 LineageOS 特意改名的文件还原，让 Bazel 认出这是根目录
+          echo "修复 Bazel 工作区标识..."
           if [ -f "bazel.WORKSPACE" ]; then
             cp bazel.WORKSPACE WORKSPACE
-            echo "WORKSPACE 文件还原成功！"
           fi
           
-          echo "开始编译 Kernel 和 Modules..."
-          # 因为我们已经在项目根目录，所以目标路径直接使用 //: 即可
-          ./tools/bazel build --config=fast //:pineapple
+          echo "破解断网限制：清理损坏或过时的本地离线仓库..."
+          # 只要这个目录不存在，Kleaf 就不会强迫 Bazel 断网
+          rm -rf external/bazelbuild-bazel-central-registry
           
-          # 备用目标：如果提示找不到 pineapple，Action 会自动尝试编译备用目标
-          # ./tools/bazel build --config=fast //:audi
+          echo "开始编译 Kernel 和 Modules..."
+          # 增加 --registry 参数，强制 Bazel 连接官方公网服务器获取最新依赖
+          ./tools/bazel build --registry=https://bcr.bazel.build --config=fast //:pineapple
 
       - name: 7. 准备 AnyKernel3 打包环境
         run: |
