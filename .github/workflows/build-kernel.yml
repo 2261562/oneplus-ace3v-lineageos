@@ -269,72 +269,59 @@ jobs:
         grep -c "=y" out/.config || true
         echo "个配置项被启用"
 
-    - name: Compile Kernel & Modules
+    - name: Compile Kernel & External Modules
       run: |
         echo "========================================="
-        echo "🔨 开始编译内核与驱动模块 (硬核修补模式)..."
+        echo "🔨 开始编译内核与外部驱动模块 (Out-of-tree)..."
         echo "========================================="
         cd msm-kernel
-
-        echo "--- 🩹 修复 GKI 架构头文件分离问题 (沙盒模式) ---"
-        EXTRA_INCLUDES="$GITHUB_WORKSPACE/extra_headers"
-        mkdir -p "$EXTRA_INCLUDES"
-        
-        find ../sm8650-modules -type d -name "include" | while read inc_dir; do
-          cp -rn "$inc_dir/"* "$EXTRA_INCLUDES/" 2>/dev/null || true
-        done
-        
-        LOC_HDR=$(find ../sm8650-modules -name "service-locator.h" | head -n 1)
-        if [ -n "$LOC_HDR" ]; then
-          mkdir -p "$EXTRA_INCLUDES/soc/qcom"
-          cp "$LOC_HDR" "$EXTRA_INCLUDES/soc/qcom/"
-        fi
-        
-        echo "--- 💉 热修复：补充一加原厂缺失的函数声明 ---"
-        # 查找所有调用了该函数的 C 文件，并在文件头部强制注入标准函数声明
-        # 这样编译器就能清晰地知道它的存在，完全不需要屏蔽安全警告
-        find drivers/ techpack/ -name "*.c" -type f -exec grep -l "msm_dsi_is_hw_st_match" {} + | while read target_file; do
-          echo "正在修复文件: $target_file"
-          # 如果文件里还没有明确的声明，就在第一行插入它
-          if ! grep -q "extern int msm_dsi_is_hw_st_match" "$target_file"; then
-            sed -i '1i /* Action 自动注入的缺失声明 */\nextern int msm_dsi_is_hw_st_match(void);' "$target_file"
-            echo "✅ 已成功注入函数声明！"
-          fi
-        done
 
         export PATH="$HOME/toolchains/clang/bin:$PATH"
         NPROC=$(nproc --all)
         echo "使用 ${NPROC} 个线程编译"
 
-        # 核心变化：去掉了危险的 -Wno-implicit-function-declaration
-        # 保持最高的安全编译标准，用我们上面写的物理热修复来过关
+        # 1. 第一步：只编译内核核心 Image (不带 modules)
+        # 这里完全不会去碰那些令人头疼的外部相机/WiFi代码
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
-          KCFLAGS="-Wno-error -I${EXTRA_INCLUDES}" \
           -j${NPROC} \
-          Image modules
+          Image
 
-        # 检查内核是否成功
+        # 检查内核核心是否成功
         if [ ! -f "out/arch/arm64/boot/Image" ] && [ ! -f "out/arch/arm64/boot/Image.gz" ]; then
           echo "❌ 编译失败: 找不到内核镜像文件"
           exit 1
         fi
+        echo "✅ 内核核心 Image 编译成功！"
 
-        # 提取编译好的所有 .ko 驱动
-        echo "📦 提取编译好的驱动模块..."
+        # 2. 第二步：使用官方的 M= 参数，编译外部模块
+        # 这就是你找到的“外部构建”的核心精髓！
+        echo "📦 开始编译树外模块 (sm8650-modules)..."
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
+          M=../sm8650-modules \
+          -j${NPROC} \
+          modules
+
+        # 3. 第三步：提取这些外部模块
+        echo "📥 提取编译好的驱动模块..."
+        make O=out ARCH=arm64 \
+          CC="ccache clang" \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          LLVM=1 \
+          M=../sm8650-modules \
           INSTALL_MOD_PATH=../out_modules \
           INSTALL_MOD_STRIP=1 \
           modules_install
         
-        echo "✅ 内核与驱动提取完毕"
+        echo "✅ 内核与驱动全部提取完毕！"
 
     - name: Package Kernel Modules (KernelSU Module)
       run: |
