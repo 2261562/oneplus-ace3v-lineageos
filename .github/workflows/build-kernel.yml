@@ -281,7 +281,6 @@ jobs:
         echo "使用 ${NPROC} 个线程编译"
 
         # 1. 编译内核核心 Image
-        # 重新加入 KCFLAGS="-Wno-error" 忽略一加原厂闪光灯驱动等无害的日志格式化警告
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -298,27 +297,36 @@ jobs:
         fi
         echo "✅ 内核核心 Image 编译成功！"
 
-        # 2. 编译外部模块
+        # ==========================================
+        # 核心修复：定义绝对路径，彻底消灭路径漂移问题
+        # ==========================================
+        MODULES_ROOT="$GITHUB_WORKSPACE/sm8650-modules"
+        OUT_MODULES_DIR="$GITHUB_WORKSPACE/out_modules"
+
+        echo "检查模块目录绝对路径: ${MODULES_ROOT}"
+        ls -la "${MODULES_ROOT}" | head -n 5
+
+        # 2. 编译外部模块 (使用绝对路径 M=${MODULES_ROOT})
         echo "📦 开始编译树外模块 (sm8650-modules)..."
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
-          M=../sm8650-modules \
+          M="${MODULES_ROOT}" \
           KCFLAGS="-Wno-error" \
           -j${NPROC} \
           modules
 
-        # 3. 提取这些外部模块
+        # 3. 提取这些外部模块 (同样使用绝对路径)
         echo "📥 提取编译好的驱动模块..."
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-gnu- \
           LLVM=1 \
-          M=../sm8650-modules \
-          INSTALL_MOD_PATH=../out_modules \
+          M="${MODULES_ROOT}" \
+          INSTALL_MOD_PATH="${OUT_MODULES_DIR}" \
           INSTALL_MOD_STRIP=1 \
           modules_install
         
