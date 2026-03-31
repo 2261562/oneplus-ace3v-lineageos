@@ -228,26 +228,13 @@ jobs:
     - name: Generate Defconfig
       run: |
         echo "========================================="
-        echo "⚙️ 生成内核配置..."
+        echo "⚙️ 生成内核配置并注入模块校验破解..."
         echo "========================================="
         cd msm-kernel
 
-        # 设置工具链路径
         export PATH="$HOME/toolchains/clang/bin:$PATH"
-        export CLANG_TRIPLE=aarch64-linux-gnu-
-        export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # 确定使用哪个编译器
-        if command -v clang &>/dev/null; then
-          COMPILER="clang"
-          echo "使用编译器: $(clang --version | head -1)"
-        else
-          echo "❌ 找不到 clang!"
-          exit 1
-        fi
-
-        # 步骤1: 基于 gki_defconfig 生成基础配置
-        echo ">>> 使用 gki_defconfig 作为基础..."
+        # 生成基础配置
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -255,32 +242,40 @@ jobs:
           LLVM=1 \
           gki_defconfig
 
-        # 步骤2: 合并 vendor pineapple GKI 配置片段 (如果存在)
         VENDOR_FRAG="arch/arm64/configs/vendor/pineapple_GKI.config"
         if [ -f "$VENDOR_FRAG" ]; then
-          echo ">>> 合并 vendor 配置片段: $VENDOR_FRAG"
           scripts/kconfig/merge_config.sh -m -O out out/.config "$VENDOR_FRAG"
-        else
-          echo "⚠️ 未找到 $VENDOR_FRAG，使用纯 gki_defconfig"
         fi
 
-        echo ""
-        echo "✅ 配置生成完毕"
-        grep -c "=y" out/.config || true
-        echo "个配置项被启用"
+        # ==========================================
+        # 核心魔法：关闭模块校验，允许加载原厂驱动
+        # ==========================================
+        echo "破解 CONFIG_MODVERSIONS..."
+        sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' out/.config
+        echo "破解 CONFIG_MODULE_SIG_FORCE..."
+        sed -i 's/CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/g' out/.config
+        
+        # 重新生成最终配置
+        make O=out ARCH=arm64 \
+          CC="ccache clang" \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          LLVM=1 \
+          olddefconfig
+        
+        echo "✅ 配置生成完毕 (已解除驱动限制)"
 
-    - name: Compile Kernel & External Modules
+    - name: Compile Kernel
       run: |
         echo "========================================="
-        echo "🔨 开始编译内核与外部驱动模块 (Out-of-tree)..."
+        echo "🔨 编译内核核心 (Image)..."
         echo "========================================="
         cd msm-kernel
 
         export PATH="$HOME/toolchains/clang/bin:$PATH"
         NPROC=$(nproc --all)
-        echo "使用 ${NPROC} 个线程编译"
 
-        # 1. 编译内核核心 Image
+        # 摒弃一切模块编译，专注生成纯净的 Image
         make O=out ARCH=arm64 \
           CC="ccache clang" \
           CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -290,47 +285,12 @@ jobs:
           -j${NPROC} \
           Image
 
-        # 检查内核核心是否成功
-        if [ ! -f "out/arch/arm64/boot/Image" ] && [ ! -f "out/arch/arm64/boot/Image.gz" ]; then
+        if [ -f "out/arch/arm64/boot/Image" ] || [ -f "out/arch/arm64/boot/Image.gz" ]; then
+          echo "✅ 内核核心 Image 编译成功！"
+        else
           echo "❌ 编译失败: 找不到内核镜像文件"
           exit 1
         fi
-        echo "✅ 内核核心 Image 编译成功！"
-
-        # ==========================================
-        # 核心修复：定义绝对路径，彻底消灭路径漂移问题
-        # ==========================================
-        MODULES_ROOT="$GITHUB_WORKSPACE/sm8650-modules"
-        OUT_MODULES_DIR="$GITHUB_WORKSPACE/out_modules"
-
-        echo "检查模块目录绝对路径: ${MODULES_ROOT}"
-        ls -la "${MODULES_ROOT}" | head -n 5
-
-        # 2. 编译外部模块 (使用绝对路径 M=${MODULES_ROOT})
-        echo "📦 开始编译树外模块 (sm8650-modules)..."
-        make O=out ARCH=arm64 \
-          CC="ccache clang" \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          LLVM=1 \
-          M="${MODULES_ROOT}" \
-          KCFLAGS="-Wno-error" \
-          -j${NPROC} \
-          modules
-
-        # 3. 提取这些外部模块 (同样使用绝对路径)
-        echo "📥 提取编译好的驱动模块..."
-        make O=out ARCH=arm64 \
-          CC="ccache clang" \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          LLVM=1 \
-          M="${MODULES_ROOT}" \
-          INSTALL_MOD_PATH="${OUT_MODULES_DIR}" \
-          INSTALL_MOD_STRIP=1 \
-          modules_install
-        
-        echo "✅ 内核与驱动全部提取完毕！"
 
     - name: Package Kernel Modules (KernelSU Module)
       run: |
