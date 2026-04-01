@@ -135,39 +135,48 @@ jobs:
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
           echo "========================================="
-          echo "🎯 终极猎杀方案：强制归并缺失的头文件"
+          echo "🎯 终极猎杀方案：修复 DTC 编译器的盲区"
           echo "========================================="
-          # 创建绝对合法的全局系统 include 路径
-          mkdir -p include/bindings
-          mkdir -p include/dt-bindings
-          mkdir -p out/include/bindings
-          mkdir -p out/include/dt-bindings
+          # 【核心破局点】: DTC 预处理器默认不会读取根目录的 include/！
+          # 必须将缺失的外部头文件放入 DTC 专用的 include 路径。
+          DTC_BINDINGS="arch/arm64/boot/dts/include/bindings"
+          DTC_DT_BINDINGS="arch/arm64/boot/dts/include/dt-bindings"
+          PREFIX_BINDINGS="scripts/dtc/include-prefixes/bindings"
+          
+          mkdir -p $DTC_BINDINGS
+          mkdir -p $DTC_DT_BINDINGS
+          mkdir -p $PREFIX_BINDINGS
+          
+          # 同步创建 out 目录结构 (针对 O=out)
+          mkdir -p out/$DTC_BINDINGS
+          mkdir -p out/$DTC_DT_BINDINGS
+          mkdir -p out/$PREFIX_BINDINGS
 
-          echo "🔍 正在合并模块仓库中的头文件结构..."
-          # 核心魔法：无论外面的文件夹叫 bindings 还是 dt-bindings，
-          # 统统把里面的文件抽出来，强行合并到 include/bindings/ 里！
-          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d \( -name "bindings" -o -name "dt-bindings" \) | while read dir; do
-            cp -R "$dir"/* include/bindings/ 2>/dev/null || true
+          echo "🔍 正在全局搜索并扁平化提取所有的设备树头文件..."
+          # 扁平化拷贝：直接找 .h 文件并强行拍平放入目标目录，无视外部仓库原本繁杂的文件夹嵌套
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type f -name "*.h" | grep -iE "bindings|audio" | while read file; do
+            cp "$file" $DTC_BINDINGS/ 2>/dev/null || true
+            cp "$file" $DTC_DT_BINDINGS/ 2>/dev/null || true
+            cp "$file" $PREFIX_BINDINGS/ 2>/dev/null || true
+            
+            cp "$file" out/$DTC_BINDINGS/ 2>/dev/null || true
+            cp "$file" out/$DTC_DT_BINDINGS/ 2>/dev/null || true
+            cp "$file" out/$PREFIX_BINDINGS/ 2>/dev/null || true
           done
-          
-          # 复制一份给 dt-bindings 备用，防止其他文件需要
-          cp -R include/bindings/* include/dt-bindings/ 2>/dev/null || true
-          
-          # 确保 out 目录（构建输出目录）也有一份完全一样的
-          cp -R include/bindings/* out/include/bindings/ 2>/dev/null || true
-          cp -R include/dt-bindings/* out/include/dt-bindings/ 2>/dev/null || true
 
-          # 验证是否成功抓到了报错的这几个文件（在日志中打印出来让你安心）
-          echo "✅ 检查音频和 GPR 头文件是否就位："
-          ls -l include/bindings/qcom,audio-ext-clk.h || echo "❌ 依然没有找到 audio-ext-clk.h!"
-          ls -l include/bindings/qcom,gpr.h || echo "❌ 依然没有找到 gpr.h!"
+          # 验证是否成功抓到了报错的这几个核心文件
+          echo "✅ 检查音频和 GPR 头文件是否已注入 DTC 视野："
+          ls -l $DTC_BINDINGS/qcom,audio-ext-clk.h || echo "❌ 依然没有找到 audio-ext-clk.h!"
+          ls -l $DTC_BINDINGS/qcom,gpr.h || echo "❌ 依然没有找到 gpr.h!"
 
           echo "========================================="
           echo "🚀 环境拼接完美，正式开始安全编译！"
           echo "========================================="
+          # 增加 DTC_INCLUDE 环境变量作为最后一道保险
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
             CONFIG_AUDI_DTB=y \
+            DTC_INCLUDE="${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650/arch/arm64/boot/dts/include" \
             -j$(nproc)
 
       - name: 8. 编译外部驱动模块 (复活 Wi-Fi 和音频的核心步骤)
