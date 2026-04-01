@@ -135,36 +135,45 @@ jobs:
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
           echo "========================================="
-          echo "🎯 终极猎杀：扁平化设备树头文件注入"
+          echo "🎯 终极外科手术：强制本地化 Device Tree 头文件"
           echo "========================================="
-          # 核心破局点：利用 Kbuild 默认全局加载 include/ 的特性，满足 < > 尖括号特权
-          SYS_BINDINGS="include/bindings"
-          SYS_DT_BINDINGS="include/dt-bindings"
           
-          mkdir -p $SYS_BINDINGS
-          mkdir -p $SYS_DT_BINDINGS
-          mkdir -p out/$SYS_BINDINGS
-          mkdir -p out/$SYS_DT_BINDINGS
-
-          echo "🔍 正在全局搜索并扁平化提取所有的设备树头文件..."
-          # 扁平化拷贝：只要文件名或路径里带有 bindings, audio, gpr 或是 qcom 专属的头文件，全部强行拍平
+          # 先把所有需要的头文件抽出来放到一个临时暂存区
+          mkdir -p /tmp/flat_bindings
+          echo "🔍 正在全仓库搜索 bindings 头文件..."
           find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type f -name "*.h" | grep -iE "bindings|audio|gpr|qcom," | while read file; do
-            cp "$file" $SYS_BINDINGS/ 2>/dev/null || true
-            cp "$file" $SYS_DT_BINDINGS/ 2>/dev/null || true
-            cp "$file" out/$SYS_BINDINGS/ 2>/dev/null || true
-            cp "$file" out/$SYS_DT_BINDINGS/ 2>/dev/null || true
+            cp "$file" /tmp/flat_bindings/ 2>/dev/null || true
           done
 
-          echo "✅ 检查音频和 GPR 头文件是否已注入 DTC 视野："
-          ls -l $SYS_BINDINGS/qcom,audio-ext-clk.h || echo "❌ 依然没有找到 audio-ext-clk.h!"
-          ls -l $SYS_BINDINGS/qcom,gpr.h || echo "❌ 依然没有找到 gpr.h!"
+          echo "✅ 检查核心音频头文件是否成功抓取："
+          ls -l /tmp/flat_bindings/qcom,audio-ext-clk.h || echo "❌ 严重警告: 没找到 audio-ext-clk.h！源码可能漏传！"
 
-          # 兜底操作：为了防止部分旧版 DTC 编译器抽风，顺手在 arch 目录也塞一份
-          mkdir -p arch/arm64/boot/dts/include/bindings
-          cp -rn $SYS_BINDINGS/* arch/arm64/boot/dts/include/bindings/ 2>/dev/null || true
+          # 锁定所有可能报错的深层目录
+          DTS_DIRS=(
+            "arch/arm64/boot/dts/vendor/qcom"
+            "arch/arm64/boot/dts/vendor/qcom/audio"
+            "arch/arm64/boot/dts/vendor/oplus"
+          )
+          
+          # 1. 地毯式注入：给每个深层目录都塞一份本地头文件
+          echo "💉 正在向设备树深层目录注入本地头文件..."
+          for DIR in "${DTS_DIRS[@]}"; do
+            if [ -d "$DIR" ]; then
+              mkdir -p "$DIR/bindings"
+              mkdir -p "$DIR/dt-bindings"
+              cp -r /tmp/flat_bindings/* "$DIR/bindings/" 2>/dev/null || true
+              cp -r /tmp/flat_bindings/* "$DIR/dt-bindings/" 2>/dev/null || true
+            fi
+          done
+
+          # 2. 【魔法时刻】强改预处理器包含规则
+          # 把所有的 <bindings/...> 和 <dt-bindings/...> 强行替换为相对路径引用的 "bindings/..."
+          echo "🪄 正在施展 sed 魔法，全局修改 dts/dtsi 文件的 include 规则..."
+          find arch/arm64/boot/dts/vendor/ -type f \( -name "*.dts" -o -name "*.dtsi" \) -exec sed -i 's/<bindings\/\(.*\.h\)>/"bindings\/\1"/g' {} +
+          find arch/arm64/boot/dts/vendor/ -type f \( -name "*.dts" -o -name "*.dtsi" \) -exec sed -i 's/<dt-bindings\/\(.*\.h\)>/"dt-bindings\/\1"/g' {} +
 
           echo "========================================="
-          echo "🚀 环境拼接完美，正式开始安全编译！"
+          echo "🚀 本地化拼接完美，预处理器这回绝对瞎不了了！"
           echo "========================================="
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
