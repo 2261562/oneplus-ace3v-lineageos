@@ -17,14 +17,50 @@ jobs:
 
       - name: 3. 安装系统依赖
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
+            echo "========================================="
+            echo "📦 安装编译依赖..."
+            echo "========================================="
+            sudo apt-get update
+            sudo apt-get install -y \
+                bc bison build-essential curl flex git gnupg gperf \
+                libncurses-dev libssl-dev libelf-dev \
+                python3 python3-pip zip unzip wget \
+                lld llvm binutils-aarch64-linux-gnu \
+                crossbuild-essential-arm64 cpio dwarves
 
-      - name: 4. 拉取极客圈顶级编译器 (ZyC-Clang 18)
+      - name: Setup AOSP Clang Toolchain
         run: |
-          mkdir -p ${GITHUB_WORKSPACE}/toolchain
-          cd ${GITHUB_WORKSPACE}/toolchain
-          git clone --depth=1 https://github.com/ZyC-X/zyc-clang.git clang
+            echo "========================================="
+            echo "🔧 下载 AOSP Clang ${CLANG_VERSION}..."
+            echo "========================================="
+            mkdir -p ~/toolchains
+
+            # 下载 AOSP Clang 预编译工具链
+            CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-${CLANG_VERSION}.tar.gz"
+            mkdir -p ~/toolchains/clang
+            cd ~/toolchains/clang
+            curl -sSL "${CLANG_URL}" | tar xz || {
+            echo "⚠️ AOSP Clang 下载失败, 尝试使用 ZyC Clang..."
+            cd ~/toolchains
+            rm -rf clang
+            # 使用备用的 ZyC Clang (兼容性更好的第三方工具链)
+            git clone --depth=1 https://gitlab.com/nickel-za/nickel-clang.git clang || {
+                echo "⚠️ ZyC Clang 也失败, 使用 Proton Clang..."
+                git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+            }
+            }
+
+            # 下载 GCC 交叉编译工具链 (用于部分汇编)
+            echo "下载 aarch64 GCC..."
+            GCC_URL="https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/main.tar.gz"
+            mkdir -p ~/toolchains/gcc-aarch64
+            cd ~/toolchains/gcc-aarch64
+            curl -sSL "${GCC_URL}" | tar xz 2>/dev/null || {
+            echo "⚠️ AOSP GCC 下载失败，使用系统自带交叉编译器"
+            }
+
+            echo "✅ 工具链准备完毕"
+            ls -la ~/toolchains/clang/bin/ | head -5
 
       - name: 5. 拉取 LineageOS 源码 (仅需核心、模块与设备树)
         run: |
