@@ -135,48 +135,40 @@ jobs:
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
           echo "========================================="
-          echo "🎯 终极猎杀方案：修复 DTC 编译器的盲区"
+          echo "🎯 终极猎杀：扁平化设备树头文件注入"
           echo "========================================="
-          # 【核心破局点】: DTC 预处理器默认不会读取根目录的 include/！
-          # 必须将缺失的外部头文件放入 DTC 专用的 include 路径。
-          DTC_BINDINGS="arch/arm64/boot/dts/include/bindings"
-          DTC_DT_BINDINGS="arch/arm64/boot/dts/include/dt-bindings"
-          PREFIX_BINDINGS="scripts/dtc/include-prefixes/bindings"
+          # 核心破局点：利用 Kbuild 默认全局加载 include/ 的特性，满足 < > 尖括号特权
+          SYS_BINDINGS="include/bindings"
+          SYS_DT_BINDINGS="include/dt-bindings"
           
-          mkdir -p $DTC_BINDINGS
-          mkdir -p $DTC_DT_BINDINGS
-          mkdir -p $PREFIX_BINDINGS
-          
-          # 同步创建 out 目录结构 (针对 O=out)
-          mkdir -p out/$DTC_BINDINGS
-          mkdir -p out/$DTC_DT_BINDINGS
-          mkdir -p out/$PREFIX_BINDINGS
+          mkdir -p $SYS_BINDINGS
+          mkdir -p $SYS_DT_BINDINGS
+          mkdir -p out/$SYS_BINDINGS
+          mkdir -p out/$SYS_DT_BINDINGS
 
           echo "🔍 正在全局搜索并扁平化提取所有的设备树头文件..."
-          # 扁平化拷贝：直接找 .h 文件并强行拍平放入目标目录，无视外部仓库原本繁杂的文件夹嵌套
-          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type f -name "*.h" | grep -iE "bindings|audio" | while read file; do
-            cp "$file" $DTC_BINDINGS/ 2>/dev/null || true
-            cp "$file" $DTC_DT_BINDINGS/ 2>/dev/null || true
-            cp "$file" $PREFIX_BINDINGS/ 2>/dev/null || true
-            
-            cp "$file" out/$DTC_BINDINGS/ 2>/dev/null || true
-            cp "$file" out/$DTC_DT_BINDINGS/ 2>/dev/null || true
-            cp "$file" out/$PREFIX_BINDINGS/ 2>/dev/null || true
+          # 扁平化拷贝：只要文件名或路径里带有 bindings, audio, gpr 或是 qcom 专属的头文件，全部强行拍平
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type f -name "*.h" | grep -iE "bindings|audio|gpr|qcom," | while read file; do
+            cp "$file" $SYS_BINDINGS/ 2>/dev/null || true
+            cp "$file" $SYS_DT_BINDINGS/ 2>/dev/null || true
+            cp "$file" out/$SYS_BINDINGS/ 2>/dev/null || true
+            cp "$file" out/$SYS_DT_BINDINGS/ 2>/dev/null || true
           done
 
-          # 验证是否成功抓到了报错的这几个核心文件
           echo "✅ 检查音频和 GPR 头文件是否已注入 DTC 视野："
-          ls -l $DTC_BINDINGS/qcom,audio-ext-clk.h || echo "❌ 依然没有找到 audio-ext-clk.h!"
-          ls -l $DTC_BINDINGS/qcom,gpr.h || echo "❌ 依然没有找到 gpr.h!"
+          ls -l $SYS_BINDINGS/qcom,audio-ext-clk.h || echo "❌ 依然没有找到 audio-ext-clk.h!"
+          ls -l $SYS_BINDINGS/qcom,gpr.h || echo "❌ 依然没有找到 gpr.h!"
+
+          # 兜底操作：为了防止部分旧版 DTC 编译器抽风，顺手在 arch 目录也塞一份
+          mkdir -p arch/arm64/boot/dts/include/bindings
+          cp -rn $SYS_BINDINGS/* arch/arm64/boot/dts/include/bindings/ 2>/dev/null || true
 
           echo "========================================="
           echo "🚀 环境拼接完美，正式开始安全编译！"
           echo "========================================="
-          # 增加 DTC_INCLUDE 环境变量作为最后一道保险
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
             CONFIG_AUDI_DTB=y \
-            DTC_INCLUDE="${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650/arch/arm64/boot/dts/include" \
             -j$(nproc)
 
       - name: 8. 编译外部驱动模块 (复活 Wi-Fi 和音频的核心步骤)
