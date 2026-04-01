@@ -135,45 +135,36 @@ jobs:
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
           echo "========================================="
-          echo "🎯 终极外科手术：强制本地化 Device Tree 头文件"
+          echo "🎯 终极清场战术：全域无死角头文件注入"
           echo "========================================="
           
-          # 先把所有需要的头文件抽出来放到一个临时暂存区
-          mkdir -p /tmp/flat_bindings
-          echo "🔍 正在全仓库搜索 bindings 头文件..."
-          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type f -name "*.h" | grep -iE "bindings|audio|gpr|qcom," | while read file; do
-            cp "$file" /tmp/flat_bindings/ 2>/dev/null || true
-          done
-
-          echo "✅ 检查核心音频头文件是否成功抓取："
-          ls -l /tmp/flat_bindings/qcom,audio-ext-clk.h || echo "❌ 严重警告: 没找到 audio-ext-clk.h！源码可能漏传！"
-
-          # 锁定所有可能报错的深层目录
-          DTS_DIRS=(
-            "arch/arm64/boot/dts/vendor/qcom"
-            "arch/arm64/boot/dts/vendor/qcom/audio"
-            "arch/arm64/boot/dts/vendor/oplus"
-          )
+          # 1. 建立终极暂存池
+          # 放弃 grep 过滤，直接把外围仓库里的所有 .h 头文件，一个不落地全抓过来！
+          mkdir -p /tmp/flat_headers/bindings
+          echo "🔍 正在全仓库无差别抓取所有外部头文件..."
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type f -name "*.h" -exec cp {} /tmp/flat_headers/bindings/ \; 2>/dev/null || true
           
-          # 1. 地毯式注入：给每个深层目录都塞一份本地头文件
-          echo "💉 正在向设备树深层目录注入本地头文件..."
-          for DIR in "${DTS_DIRS[@]}"; do
-            if [ -d "$DIR" ]; then
-              mkdir -p "$DIR/bindings"
-              mkdir -p "$DIR/dt-bindings"
-              cp -r /tmp/flat_bindings/* "$DIR/bindings/" 2>/dev/null || true
-              cp -r /tmp/flat_bindings/* "$DIR/dt-bindings/" 2>/dev/null || true
-            fi
+          # 复制一个分身给 dt-bindings
+          cp -r /tmp/flat_headers/bindings /tmp/flat_headers/dt-bindings
+
+          echo "✅ 检查音频和相机头文件是否抓取成功："
+          ls -l /tmp/flat_headers/bindings/qcom,audio-ext-clk.h || echo "❌ 没找到 audio！"
+          ls -l /tmp/flat_headers/bindings/msm-camera.h || echo "❌ 没找到 camera！"
+
+          # 2. 地毯式注入：给 vendor 下的每一寸土地都洒上头文件
+          echo "💉 正在向设备树所有深层目录进行地毯式注入..."
+          find arch/arm64/boot/dts/vendor/ -type d | while read DIR; do
+            cp -rn /tmp/flat_headers/bindings "$DIR/" 2>/dev/null || true
+            cp -rn /tmp/flat_headers/dt-bindings "$DIR/" 2>/dev/null || true
           done
 
-          # 2. 【魔法时刻】强改预处理器包含规则
-          # 把所有的 <bindings/...> 和 <dt-bindings/...> 强行替换为相对路径引用的 "bindings/..."
-          echo "🪄 正在施展 sed 魔法，全局修改 dts/dtsi 文件的 include 规则..."
+          # 3. 强改预处理器包含规则（保留我们上次大获成功的绝杀魔法）
+          echo "🪄 正在施展 sed 魔法，全局统一 include 规则..."
           find arch/arm64/boot/dts/vendor/ -type f \( -name "*.dts" -o -name "*.dtsi" \) -exec sed -i 's/<bindings\/\(.*\.h\)>/"bindings\/\1"/g' {} +
           find arch/arm64/boot/dts/vendor/ -type f \( -name "*.dts" -o -name "*.dtsi" \) -exec sed -i 's/<dt-bindings\/\(.*\.h\)>/"dt-bindings\/\1"/g' {} +
 
           echo "========================================="
-          echo "🚀 本地化拼接完美，预处理器这回绝对瞎不了了！"
+          echo "🚀 全域补全完毕，前方再无任何阻挡！"
           echo "========================================="
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
