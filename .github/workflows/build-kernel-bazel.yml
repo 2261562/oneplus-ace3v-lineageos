@@ -119,17 +119,32 @@ jobs:
         run: |
           cd ${GITHUB_WORKSPACE}/android_kernel/msm-kernel
           
-          echo "修复 Bazel 工作区标识..."
+          echo "修复 Bazel 传统工作区标识 (WORKSPACE)..."
           if [ -f "bazel.WORKSPACE" ]; then
             cp bazel.WORKSPACE WORKSPACE
+            echo "WORKSPACE 还原成功！"
           fi
           
-          echo "破解断网限制：清理损坏或过时的本地离线仓库..."
-          # 只要这个目录不存在，Kleaf 就不会强迫 Bazel 断网
+          echo "修复 Bzlmod 模块声明 (解决 apple_support/gbl 报错的核心)..."
+          # 如果 LineageOS 提供了隐藏的 MODULE 声明，就还原它
+          if [ -f "bazel.MODULE.bazel" ]; then
+            cp bazel.MODULE.bazel MODULE.bazel
+            echo "MODULE.bazel 还原成功！"
+          else
+            # 如果没有，我们就手搓一个合法的空壳声明，用来“接住”官方脚本的强制覆盖
+            echo "手搓伪造的 MODULE.bazel..."
+            cat << 'EOF' > MODULE.bazel
+          module(name = "msm_kernel", version = "1.0")
+          bazel_dep(name = "apple_support", version = "1.15.1")
+          bazel_dep(name = "dittosuite", version = "0.1.0")
+          bazel_dep(name = "gbl", version = "0.1.0")
+          EOF
+          fi
+          
+          echo "清理损坏或过时的本地离线仓库..."
           rm -rf external/bazelbuild-bazel-central-registry
           
           echo "开始编译 Kernel 和 Modules..."
-          # 增加 --registry 参数，强制 Bazel 连接官方公网服务器获取最新依赖
           ./tools/bazel build --registry=https://bcr.bazel.build --config=fast //:pineapple
 
       - name: 7. 准备 AnyKernel3 打包环境
