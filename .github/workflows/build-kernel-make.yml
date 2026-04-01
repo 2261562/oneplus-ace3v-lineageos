@@ -48,51 +48,14 @@ jobs:
           
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
-          echo "将你仓库根目录的 audi_defconfig 复制到内核的 configs 目录中..."
+          echo "将你提取的原厂 audi_defconfig 复制到内核的 configs 目录中..."
           cp ${GITHUB_WORKSPACE}/audi_defconfig arch/arm64/configs/audi_defconfig
           
-          echo "生成初始配置文件 (带上官方设备树要求的特有参数)..."
+          echo "生成初始配置文件..."
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
             CONFIG_AUDI_DTB=y \
             audi_defconfig
-          
-          echo "向生成的 .config 注入 Docker 必备参数..."
-          cat << 'EOF' >> out/.config
-          
-          # Docker 核心支持
-          CONFIG_NAMESPACES=y
-          CONFIG_USER_NS=y
-          CONFIG_PID_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_UTS_NS=y
-          CONFIG_CGROUP_NS=y
-          CONFIG_CGROUPS=y
-          CONFIG_MEMCG=y
-          CONFIG_MEMCG_SWAP=y
-          CONFIG_BLK_CGROUP=y
-          CONFIG_CGROUP_SCHED=y
-          CONFIG_CGROUP_PIDS=y
-          CONFIG_CGROUP_FREEZER=y
-          CONFIG_CGROUP_DEVICE=y
-          CONFIG_CGROUP_CPUACCT=y
-          CONFIG_CGROUP_BPF=y
-          CONFIG_VETH=y
-          CONFIG_BRIDGE=y
-          CONFIG_BRIDGE_NETFILTER=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
-          CONFIG_NETFILTER_XT_MATCH_IPVS=y
-          CONFIG_IP_NF_NAT=y
-          CONFIG_IP_NF_TARGET_MASQUERADE=y
-          CONFIG_IP_NF_TARGET_NETMAP=y
-          CONFIG_IP_NF_TARGET_REDIRECT=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_SECCOMP=y
-          CONFIG_SECCOMP_FILTER=y
-          CONFIG_KEYS=y
-          EOF
 
       - name: 7. 编译核心内核 (Image)
         run: |
