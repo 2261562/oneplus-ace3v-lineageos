@@ -62,7 +62,7 @@ jobs:
             echo "✅ 工具链准备完毕"
             ls -la ~/toolchains/clang/bin/ | head -5
 
-      - name: 5. 拉取 LineageOS 源码并修复破损软链接 (核心难点突破)
+      - name: 5. 拉取源码并修复破损链接与头文件 (核心难点突破)
         run: |
           mkdir -p ${GITHUB_WORKSPACE}/android_kernel
           cd ${GITHUB_WORKSPACE}/android_kernel
@@ -71,33 +71,47 @@ jobs:
           git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-modules.git
           git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-devicetrees.git
           
-          echo "========================================="
-          echo "🔧 开始执行手术：自动重连破损的模块符号链接"
-          echo "========================================="
           cd android_kernel_oneplus_sm8650
           
-          # 查找当前内核目录下所有的死链（目标不存在的符号链接）
+          echo "========================================="
+          echo "🔧 手术 1：自动重连破损的模块符号链接"
+          echo "========================================="
+          # 查找所有死链并强行重新指向我们刚刚克隆好的同级目录
           find . -type l ! -exec test -e {} \; -print | while read broken_link; do
-            # 读取这个死链原本想指向哪里
             target=$(readlink "$broken_link")
-            
-            # 如果它本来是指向 modules 仓库的
             if [[ "$target" == *"sm8650-modules"* ]]; then
               if [[ "$target" == *"sm8650-modules" ]]; then subpath=""; else subpath="${target#*sm8650-modules/}"; fi
               rm "$broken_link"
-              # 强行用绝对路径给它接上
               ln -s "${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650-modules/$subpath" "$broken_link"
-              echo "✅ 修复模块链接: $broken_link"
-              
-            # 如果它本来是指向 devicetrees 仓库的
             elif [[ "$target" == *"sm8650-devicetrees"* ]]; then
               if [[ "$target" == *"sm8650-devicetrees" ]]; then subpath=""; else subpath="${target#*sm8650-devicetrees/}"; fi
               rm "$broken_link"
-              # 强行用绝对路径给它接上
               ln -s "${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650-devicetrees/$subpath" "$broken_link"
-              echo "✅ 修复设备树链接: $broken_link"
             fi
           done
+
+          echo "========================================="
+          echo "🔧 手术 2：跨仓库救援缺失的 Device Tree 头文件"
+          echo "========================================="
+          # 为主内核创建存放外部配置的专属路径
+          mkdir -p include/bindings
+          mkdir -p include/dt-bindings
+          
+          # 1. 精准狙击报错的 qcom,audio-ext-clk.h
+          AUDIO_H=$(find ../ -name "qcom,audio-ext-clk.h" | head -n 1)
+          if [ -n "$AUDIO_H" ]; then
+            AUDIO_DIR=$(dirname "$AUDIO_H")
+            echo "✅ 发现音频核心头文件目录: $AUDIO_DIR"
+            # 将该目录下的所有音频头文件强行灌入主内核的 include/bindings/
+            cp -rn "$AUDIO_DIR"/* include/bindings/ 2>/dev/null || true
+          fi
+          
+          # 2. 防御性操作：把外部仓库里所有的设备树定义 (dt-bindings) 全部复制过来防报错
+          echo "✅ 正在同步全局外部设备树头文件..."
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d -name "dt-bindings" -exec cp -rn {}/* include/dt-bindings/ \; 2>/dev/null || true
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d -name "bindings" -exec cp -rn {}/* include/bindings/ \; 2>/dev/null || true
+          
+          echo "头文件救援手术完成！"
 
       - name: 6. 初始化配置并注入 Docker 魔法
         run: |
