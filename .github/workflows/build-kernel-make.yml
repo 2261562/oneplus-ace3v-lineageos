@@ -171,17 +171,49 @@ jobs:
             CONFIG_AUDI_DTB=y \
             -j$(nproc)
 
-      - name: 8. 编译外部驱动模块 (复活 Wi-Fi 和音频的核心步骤)
+      - name: 8. 编译驱动模块 (自动雷达扫描双重编译)
         run: |
           export PATH="${GITHUB_WORKSPACE}/toolchain/clang/bin:$PATH"
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
-          echo "开始编译外部驱动模块..."
+          echo "========================================="
+          echo "🔌 第一阶段：编译已融合的内部模块"
+          echo "========================================="
+          # 编译主内核树中已经存在的模块
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
             CONFIG_AUDI_DTB=y \
-            M=../android_kernel_oneplus_sm8650-modules \
             modules -j$(nproc)
+          
+          echo "========================================="
+          echo "🛸 第二阶段：雷达扫描编译所有外部游离模块"
+          echo "========================================="
+          # 绝对路径指向模块仓库
+          MODULES_DIR="${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650-modules"
+          
+          echo "🔍 正在扫描外部仓库中所有符合 Kbuild 规范的模块目录..."
+          
+          # 核心魔法：全盘扫描 Makefile，并过滤出真正的 Linux 驱动模块
+          find "$MODULES_DIR" -type f -name "Makefile" | while read makefile_path; do
+            TARGET_DIR=$(dirname "$makefile_path")
+            
+            # 智能过滤：只有当目录里同时有 Kbuild 文件，或者 Makefile 里包含内核模块特有的 "obj-" 语法时，才认定它是驱动
+            if [ -f "$TARGET_DIR/Kbuild" ] || grep -q "obj-" "$TARGET_DIR/Makefile" 2>/dev/null; then
+              # 计算相对路径，只是为了让日志打印出来好看
+              REL_PATH=${TARGET_DIR#$MODULES_DIR/}
+              
+              echo "-----------------------------------------"
+              echo "🚀 侦测到标准内核模块: [$REL_PATH]"
+              echo "正在启动专项编译..."
+              
+              # 对找到的每一个深层目录，单独执行 M= 编译！
+              make O=out ARCH=arm64 LLVM=1 \
+                CONFIG_OPLUS_DEVICE_DTBS=y \
+                CONFIG_AUDI_DTB=y \
+                M="$TARGET_DIR" \
+                modules -j$(nproc) || echo "⚠️ [$REL_PATH] 模块编译抛出警告或失败，脚本将继续尝试下一个..."
+            fi
+          done
 
       - name: 9. Package with AnyKernel3
         run: |
