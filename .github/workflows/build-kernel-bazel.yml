@@ -125,13 +125,11 @@ jobs:
             echo "WORKSPACE 还原成功！"
           fi
           
-          echo "修复 Bzlmod 模块声明 (解决 apple_support/gbl 报错的核心)..."
-          # 如果 LineageOS 提供了隐藏的 MODULE 声明，就还原它
+          echo "修复 Bzlmod 模块声明..."
           if [ -f "bazel.MODULE.bazel" ]; then
             cp bazel.MODULE.bazel MODULE.bazel
             echo "MODULE.bazel 还原成功！"
           else
-            # 如果没有，我们就手搓一个合法的空壳声明，用来“接住”官方脚本的强制覆盖
             echo "手搓伪造的 MODULE.bazel..."
             cat << 'EOF' > MODULE.bazel
           module(name = "msm_kernel", version = "1.0")
@@ -145,7 +143,8 @@ jobs:
           rm -rf external/bazelbuild-bazel-central-registry
           
           echo "开始编译 Kernel 和 Modules..."
-          ./tools/bazel build --registry=https://bcr.bazel.build --config=fast //:pineapple
+          # 核心破壁：加入 --repository_disable_download=false 强行夺回下载权限
+          ./tools/bazel build --registry=https://bcr.bazel.build --config=fast --repository_disable_download=false //:pineapple
 
       - name: 7. 准备 AnyKernel3 打包环境
         run: |
