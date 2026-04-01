@@ -82,91 +82,91 @@ jobs:
 
       - name: 9. Package with AnyKernel3
         run: |
-        echo "========================================="
-        echo "📦 终极方案：补全 Wi-Fi 驱动 + 强制 boot 分区"
-        echo "========================================="
-        # 1. 克隆 AnyKernel3
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
-        cd anykernel3
-        
-        # 2. 下载工具链 (沿用你的 64位 方案)
-        echo "下载 64位 busybox 和 magiskboot..."
-        curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/busybox" -o tools/busybox
-        curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/magiskboot" -o tools/magiskboot
-        
-        chmod -R 777 tools
-        rm -rf .git .github README.md
+            echo "========================================="
+            echo "📦 终极方案：补全 Wi-Fi 驱动 + 强制 boot 分区"
+            echo "========================================="
+            # 1. 克隆 AnyKernel3
+            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+            cd anykernel3
+            
+            # 2. 下载工具链 (沿用你的 64位 方案)
+            echo "下载 64位 busybox 和 magiskboot..."
+            curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/busybox" -o tools/busybox
+            curl -sSL "https://raw.githubusercontent.com/osm0sis/AnyKernel3/arm64-tools/magiskboot" -o tools/magiskboot
+            
+            chmod -R 777 tools
+            rm -rf .git .github README.md
 
-        # 3. 创建驱动存放目录 (现代 GKI 驱动通常存放在 vendor_dlkm)
-        mkdir -p modules/vendor_dlkm/lib/modules/
+            # 3. 创建驱动存放目录 (现代 GKI 驱动通常存放在 vendor_dlkm)
+            mkdir -p modules/vendor_dlkm/lib/modules/
 
-        # 4. 写入适配配置 (已修改为 do.modules=1 并保持你的 BLOCK 风格)
-        printf '%s\n' \
-        '# AnyKernel3 Ramdisk Mod Script' \
-        '# OnePlus Ace 3V (audi/porsche) - GKI' \
-        '' \
-        '## AnyKernel setup' \
-        "properties() { '" \
-        'kernel.string=LineageOS Kernel for OnePlus Ace 3V' \
-        'do.devicecheck=0' \
-        'do.modules=1' \
-        'do.systemless=1' \
-        'do.cleanup=1' \
-        'do.cleanuponabort=0' \
-        'device.name1=audi' \
-        'device.name2=porsche' \
-        'device.name3=OP5D3FL1' \
-        'device.name4=PJZ110' \
-        'supported.versions=' \
-        'supported.patchlevels=' \
-        "'; }" \
-        '' \
-        '## AnyKernel boot install' \
-        'BLOCK=boot;' \
-        'IS_SLOT_DEVICE=1;' \
-        'RAMDISK_COMPRESSION=auto;' \
-        'PATCH_VBMETA_FLAG=auto;' \
-        '' \
-        '. tools/ak3-core.sh;' \
-        '' \
-        'dump_boot;' \
-        'write_boot;' \
-        '## end boot install' \
-        > anykernel.sh
+            # 4. 写入适配配置 (已修改为 do.modules=1 并保持你的 BLOCK 风格)
+            printf '%s\n' \
+            '# AnyKernel3 Ramdisk Mod Script' \
+            '# OnePlus Ace 3V (audi/porsche) - GKI' \
+            '' \
+            '## AnyKernel setup' \
+            "properties() { '" \
+            'kernel.string=LineageOS Kernel for OnePlus Ace 3V' \
+            'do.devicecheck=0' \
+            'do.modules=1' \
+            'do.systemless=1' \
+            'do.cleanup=1' \
+            'do.cleanuponabort=0' \
+            'device.name1=audi' \
+            'device.name2=porsche' \
+            'device.name3=OP5D3FL1' \
+            'device.name4=PJZ110' \
+            'supported.versions=' \
+            'supported.patchlevels=' \
+            "'; }" \
+            '' \
+            '## AnyKernel boot install' \
+            'BLOCK=boot;' \
+            'IS_SLOT_DEVICE=1;' \
+            'RAMDISK_COMPRESSION=auto;' \
+            'PATCH_VBMETA_FLAG=auto;' \
+            '' \
+            '. tools/ak3-core.sh;' \
+            '' \
+            'dump_boot;' \
+            'write_boot;' \
+            '## end boot install' \
+            > anykernel.sh
 
-        # 5. 查找并拷贝内核镜像
-        KERNEL_IMAGE=""
-        if [ -f "../msm-kernel/out/arch/arm64/boot/Image" ]; then
-            KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image"
-        elif [ -f "../msm-kernel/out/arch/arm64/boot/Image.gz" ]; then
-            KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image.gz"
-        fi
+            # 5. 查找并拷贝内核镜像
+            KERNEL_IMAGE=""
+            if [ -f "../msm-kernel/out/arch/arm64/boot/Image" ]; then
+                KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image"
+            elif [ -f "../msm-kernel/out/arch/arm64/boot/Image.gz" ]; then
+                KERNEL_IMAGE="../msm-kernel/out/arch/arm64/boot/Image.gz"
+            fi
 
-        if [ -n "$KERNEL_IMAGE" ]; then
-            echo "✅ 找到内核镜像: $KERNEL_IMAGE"
-            cp "$KERNEL_IMAGE" ./
-        else
-            echo "❌ 找不到编译好的内核镜像!"
-            exit 1
-        fi
+            if [ -n "$KERNEL_IMAGE" ]; then
+                echo "✅ 找到内核镜像: $KERNEL_IMAGE"
+                cp "$KERNEL_IMAGE" ./
+            else
+                echo "❌ 找不到编译好的内核镜像!"
+                exit 1
+            fi
 
-        # 6. 搜集 Wi-Fi 驱动 (.ko 文件)
-        # 在整个 android_kernel 目录下搜索刚才编译出的模块并放入打包路径
-        echo "🔍 正在搜集 .ko 驱动模块..."
-        find ../ -name "*.ko" -type f -exec cp {} modules/vendor_dlkm/lib/modules/ \;
-        
-        # 校验是否搜集到了驱动
-        if [ "$(ls -A modules/vendor_dlkm/lib/modules/)" ]; then
-            echo "✅ 成功搜集到驱动模块"
-        else
-            echo "⚠️ 未发现驱动模块，Wi-Fi 可能无法工作"
-        fi
+            # 6. 搜集 Wi-Fi 驱动 (.ko 文件)
+            # 在整个 android_kernel 目录下搜索刚才编译出的模块并放入打包路径
+            echo "🔍 正在搜集 .ko 驱动模块..."
+            find ../ -name "*.ko" -type f -exec cp {} modules/vendor_dlkm/lib/modules/ \;
+            
+            # 校验是否搜集到了驱动
+            if [ "$(ls -A modules/vendor_dlkm/lib/modules/)" ]; then
+                echo "✅ 成功搜集到驱动模块"
+            else
+                echo "⚠️ 未发现驱动模块，Wi-Fi 可能无法工作"
+            fi
 
-        # 7. 创建刷机包
-        zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
-        
-        # 8. 存一份裸 Image 备份
-        cp "$KERNEL_IMAGE" ../Image-LineageOS-Ace3V-$(date +%Y%m%d)
+            # 7. 创建刷机包
+            zip -r9 ../Kernel-LineageOS-Ace3V-$(date +%Y%m%d).zip * -x '*.git*'
+            
+            # 8. 存一份裸 Image 备份
+            cp "$KERNEL_IMAGE" ../Image-LineageOS-Ace3V-$(date +%Y%m%d)
 
       - name: 10. 上传刷机包
         uses: actions/upload-artifact@v4
