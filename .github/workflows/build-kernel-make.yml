@@ -135,35 +135,29 @@ jobs:
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
           echo "========================================="
-          echo "🚑 优雅合并：跨仓库设备树头文件同步"
+          echo "🚑 终极正规军方案：注入官方 Include 路径"
           echo "========================================="
+          # 核心秘诀：直接放到 DTC 专用的公共 Include 路径中，满足 Clang 的尖括号要求！
+          
+          mkdir -p arch/arm64/boot/dts/vendor/qcom/include/bindings
+          mkdir -p arch/arm64/boot/dts/vendor/qcom/include/dt-bindings
           mkdir -p include/bindings
           mkdir -p include/dt-bindings
           mkdir -p out/include/bindings
           mkdir -p out/include/dt-bindings
-          
-          echo "🔍 正在合并 modules 和 devicetrees 仓库中的头文件..."
+
+          echo "🔍 正在将外部头文件无缝注入系统层级..."
           find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d -name "bindings" | while read dir; do
+            cp -rn "$dir"/* arch/arm64/boot/dts/vendor/qcom/include/bindings/ 2>/dev/null || true
             cp -rn "$dir"/* include/bindings/ 2>/dev/null || true
+            cp -rn "$dir"/* out/include/bindings/ 2>/dev/null || true
           done
+
           find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d -name "dt-bindings" | while read dir; do
+            cp -rn "$dir"/* arch/arm64/boot/dts/vendor/qcom/include/dt-bindings/ 2>/dev/null || true
             cp -rn "$dir"/* include/dt-bindings/ 2>/dev/null || true
+            cp -rn "$dir"/* out/include/dt-bindings/ 2>/dev/null || true
           done
-
-          # 同步给 out 目录
-          cp -rn include/bindings/* out/include/bindings/ 2>/dev/null || true
-          cp -rn include/dt-bindings/* out/include/dt-bindings/ 2>/dev/null || true
-
-          # 针对高通音频 DTC 编译的本地化挂载
-          mkdir -p arch/arm64/boot/dts/vendor/qcom/audio/bindings
-          cp -rn include/bindings/* arch/arm64/boot/dts/vendor/qcom/audio/bindings/ 2>/dev/null || true
-
-          echo "========================================="
-          echo "🧙‍♂️ 施展魔法：满足 Clang 18 的严苛语法要求"
-          echo "========================================="
-          # 用 sed 正则表达式，全局将尖括号 <bindings/xxx> 替换为双引号 "bindings/xxx"
-          find arch/arm64/boot/dts/ -type f -name "*.dts*" -exec sed -i 's/#include <bindings\/\(.*\)>/#include "bindings\/\1"/g' {} +
-          find arch/arm64/boot/dts/ -type f -name "*.dts*" -exec sed -i 's/#include <dt-bindings\/\(.*\)>/#include "dt-bindings\/\1"/g' {} +
 
           echo "========================================="
           echo "🚀 环境拼接完美，正式开始安全编译！"
