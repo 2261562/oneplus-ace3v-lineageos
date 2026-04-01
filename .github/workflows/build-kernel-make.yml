@@ -129,12 +129,44 @@ jobs:
             CONFIG_AUDI_DTB=y \
             audi_defconfig
 
-      - name: 7. 编译核心内核 (Image)
+      - name: 7. 编译核心内核 (Image & DTBs)
         run: |
           export PATH="${GITHUB_WORKSPACE}/toolchain/clang/bin:$PATH"
           cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
           
-          echo "开始编译核心内核..."
+          echo "========================================="
+          echo "🚑 优雅合并：跨仓库设备树头文件同步"
+          echo "========================================="
+          # 创建主内核的目标接收目录
+          mkdir -p include/bindings
+          mkdir -p include/dt-bindings
+          mkdir -p out/include/bindings
+          mkdir -p out/include/dt-bindings
+          
+          # 使用结构化复制 (cp -rn) 代替暴力的单文件提取
+          # 这样可以完美保留 qcom/xxx.h 这种子目录结构，彻底避免同名文件覆盖！
+          echo "🔍 正在合并 modules 和 devicetrees 仓库中的头文件结构..."
+          
+          # 查找所有外部的 bindings 目录，并将其内部结构完整同步到主内核
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d -name "bindings" | while read dir; do
+            cp -rn "$dir"/* include/bindings/ 2>/dev/null || true
+          done
+          
+          find ../android_kernel_oneplus_sm8650-modules ../android_kernel_oneplus_sm8650-devicetrees -type d -name "dt-bindings" | while read dir; do
+            cp -rn "$dir"/* include/dt-bindings/ 2>/dev/null || true
+          done
+
+          # 同步给 out 目录的编译器
+          cp -rn include/bindings/* out/include/bindings/ 2>/dev/null || true
+          cp -rn include/dt-bindings/* out/include/dt-bindings/ 2>/dev/null || true
+
+          # 针对高通音频 DTC 编译的特殊强绑定
+          mkdir -p arch/arm64/boot/dts/vendor/qcom/audio/bindings
+          cp -rn include/bindings/* arch/arm64/boot/dts/vendor/qcom/audio/bindings/ 2>/dev/null || true
+
+          echo "========================================="
+          echo "🚀 环境拼接完美，正式开始安全编译！"
+          echo "========================================="
           make O=out ARCH=arm64 LLVM=1 \
             CONFIG_OPLUS_DEVICE_DTBS=y \
             CONFIG_AUDI_DTB=y \
