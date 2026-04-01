@@ -128,7 +128,6 @@ jobs:
           echo "修复 Bzlmod 模块声明..."
           if [ -f "bazel.MODULE.bazel" ]; then
             cp bazel.MODULE.bazel MODULE.bazel
-            echo "MODULE.bazel 还原成功！"
           else
             echo "手搓伪造的 MODULE.bazel..."
             cat << 'EOF' > MODULE.bazel
@@ -143,8 +142,8 @@ jobs:
           rm -rf external/bazelbuild-bazel-central-registry
           
           echo "开始编译 Kernel 和 Modules..."
-          # 核心破壁：加入 --repository_disable_download=false 强行夺回下载权限
-          ./tools/bazel build --registry=https://bcr.bazel.build --config=fast --repository_disable_download=false //:pineapple
+          # 加入 --enable_workspace 强行让 Bazel 8 读取旧版工作区配置文件！
+          ./tools/bazel build --registry=https://bcr.bazel.build --config=fast --repository_disable_download=false --enable_workspace //:pineapple
 
       - name: 7. 准备 AnyKernel3 打包环境
         run: |
