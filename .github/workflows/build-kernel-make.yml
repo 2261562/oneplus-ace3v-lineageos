@@ -1,0 +1,142 @@
+name: Build OnePlus Ace 3V (audi) Make Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 检出你的 GitHub 仓库 (为了获取你上传的 audi_defconfig)
+        uses: actions/checkout@v4
+
+      - name: 2. 清理空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          sudo apt-get clean
+
+      - name: 3. 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
+
+      - name: 4. 拉取极客圈顶级编译器 (ZyC-Clang 18)
+        run: |
+          mkdir -p ${GITHUB_WORKSPACE}/toolchain
+          cd ${GITHUB_WORKSPACE}/toolchain
+          git clone --depth=1 https://github.com/ZyC-X/zyc-clang.git clang
+
+      - name: 5. 拉取 LineageOS 源码 (仅需核心、模块与设备树)
+        run: |
+          mkdir -p ${GITHUB_WORKSPACE}/android_kernel
+          cd ${GITHUB_WORKSPACE}/android_kernel
+          
+          # 拉取 LineageOS 23.2 分支的源码
+          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650.git
+          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-modules.git
+          git clone --depth=1 -b lineage-23.2 https://github.com/LineageOS/android_kernel_oneplus_sm8650-devicetrees.git
+          
+          # 建立符号链接，让内核能找到设备树和模块
+          cd android_kernel_oneplus_sm8650
+          ln -s ../android_kernel_oneplus_sm8650-modules vendor_modules
+          ln -s ../android_kernel_oneplus_sm8650-devicetrees vendor_devicetrees
+
+      - name: 6. 初始化配置并注入 Docker 魔法
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/toolchain/clang/bin:$PATH"
+          export KBUILD_COMPILER_STRING="$(clang --version | head -n 1)"
+          
+          cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
+          
+          echo "将你仓库根目录的 audi_defconfig 复制到内核的 configs 目录中..."
+          cp ${GITHUB_WORKSPACE}/audi_defconfig arch/arm64/configs/audi_defconfig
+          
+          echo "生成初始配置文件 (带上官方设备树要求的特有参数)..."
+          make O=out ARCH=arm64 LLVM=1 \
+            CONFIG_OPLUS_DEVICE_DTBS=y \
+            CONFIG_AUDI_DTB=y \
+            audi_defconfig
+          
+          echo "向生成的 .config 注入 Docker 必备参数..."
+          cat << 'EOF' >> out/.config
+          
+          # Docker 核心支持
+          CONFIG_NAMESPACES=y
+          CONFIG_USER_NS=y
+          CONFIG_PID_NS=y
+          CONFIG_IPC_NS=y
+          CONFIG_UTS_NS=y
+          CONFIG_CGROUP_NS=y
+          CONFIG_CGROUPS=y
+          CONFIG_MEMCG=y
+          CONFIG_MEMCG_SWAP=y
+          CONFIG_BLK_CGROUP=y
+          CONFIG_CGROUP_SCHED=y
+          CONFIG_CGROUP_PIDS=y
+          CONFIG_CGROUP_FREEZER=y
+          CONFIG_CGROUP_DEVICE=y
+          CONFIG_CGROUP_CPUACCT=y
+          CONFIG_CGROUP_BPF=y
+          CONFIG_VETH=y
+          CONFIG_BRIDGE=y
+          CONFIG_BRIDGE_NETFILTER=y
+          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+          CONFIG_NETFILTER_XT_MATCH_IPVS=y
+          CONFIG_IP_NF_NAT=y
+          CONFIG_IP_NF_TARGET_MASQUERADE=y
+          CONFIG_IP_NF_TARGET_NETMAP=y
+          CONFIG_IP_NF_TARGET_REDIRECT=y
+          CONFIG_OVERLAY_FS=y
+          CONFIG_POSIX_MQUEUE=y
+          CONFIG_SECCOMP=y
+          CONFIG_SECCOMP_FILTER=y
+          CONFIG_KEYS=y
+          EOF
+
+      - name: 7. 编译核心内核 (Image)
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/toolchain/clang/bin:$PATH"
+          cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
+          
+          echo "开始编译核心内核..."
+          make O=out ARCH=arm64 LLVM=1 \
+            CONFIG_OPLUS_DEVICE_DTBS=y \
+            CONFIG_AUDI_DTB=y \
+            -j$(nproc)
+
+      - name: 8. 编译外部驱动模块 (复活 Wi-Fi 和音频的核心步骤)
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/toolchain/clang/bin:$PATH"
+          cd ${GITHUB_WORKSPACE}/android_kernel/android_kernel_oneplus_sm8650
+          
+          echo "开始编译外部驱动模块..."
+          make O=out ARCH=arm64 LLVM=1 \
+            CONFIG_OPLUS_DEVICE_DTBS=y \
+            CONFIG_AUDI_DTB=y \
+            M=../android_kernel_oneplus_sm8650-modules \
+            modules -j$(nproc)
+
+      - name: 9. 使用 AnyKernel3 完美打包
+        run: |
+          cd ${GITHUB_WORKSPACE}
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/patch AnyKernel3/ramdisk
+          mkdir -p AnyKernel3/modules/vendor_dlkm/lib/modules/
+          
+          echo "复制核心 Image..."
+          cp android_kernel/android_kernel_oneplus_sm8650/out/arch/arm64/boot/Image AnyKernel3/
+          
+          echo "搜集刚刚编译出来的新鲜驱动 (.ko) 并放入 vendor_dlkm 目录..."
+          # 编译模块时，产物可能会留在外部模块目录或 out 目录，我们全局搜索并复制
+          find android_kernel/ -name "*.ko" -type f -exec cp {} AnyKernel3/modules/vendor_dlkm/lib/modules/ \;
+          
+          echo "打包 ZIP..."
+          cd AnyKernel3
+          zip -r9 OnePlus-Ace3V-Docker-Kernel.zip *
+
+      - name: 10. 上传刷机包
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnePlus-Ace3V-Docker-Kernel
+          path: ${GITHUB_WORKSPACE}/AnyKernel3/OnePlus-Ace3V-Docker-Kernel.zip
